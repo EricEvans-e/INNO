@@ -1,9 +1,5 @@
 # cim_3d_scheduler
 
-赛道二 / 赛题二：3D 异构 CIM 资源调度优化实现。输入 `model.json` 或 ONNX 与 MoE 激活轨迹，输出空间映射、静态调度、对比指标、图表、`solution.json` 和可复现 `run_manifest.json`。
-
-截至 2026-04-29，最终提交建议以 [docs/SUBMISSION_PARAM_CARD_V5.md](docs/SUBMISSION_PARAM_CARD_V5.md) 与 `outputs/final_param_recommendation_v5.json` 为准。V5 主结果在 `outputs/submission_v5_primary/`，备选结果在 `outputs/submission_v5_backup/`，大模型适配证明在 `outputs/large_scale_v5/run_strict/`。
-
 ## Python 环境
 
 本项目固定使用项目虚拟环境，不使用电脑上的系统 Python：
