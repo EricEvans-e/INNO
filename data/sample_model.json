@@ -1,0 +1,190 @@
+{
+  "model_name": "deepseek_moe_toy",
+  "dtype": "int8",
+  "operators": [
+    {
+      "id": "embed_proj",
+      "type": "linear",
+      "shape": [4096, 4096],
+      "deps": []
+    },
+    {
+      "id": "shared_attn",
+      "type": "linear",
+      "shape": [4096, 4096],
+      "deps": ["embed_proj"],
+      "parallel_group": "shared"
+    },
+    {
+      "id": "shared_mlp",
+      "type": "linear",
+      "shape": [4096, 4096],
+      "deps": ["shared_attn"],
+      "parallel_group": "shared"
+    },
+    {
+      "id": "moe_router",
+      "type": "linear",
+      "shape": [4096, 256],
+      "deps": ["shared_attn"]
+    },
+    {
+      "id": "expert_0",
+      "type": "moe_expert",
+      "expert_id": 0,
+      "shape": [4096, 1024],
+      "deps": ["moe_router"],
+      "parallel_group": "experts"
+    },
+    {
+      "id": "expert_1",
+      "type": "moe_expert",
+      "expert_id": 1,
+      "shape": [4096, 1024],
+      "deps": ["moe_router"],
+      "parallel_group": "experts"
+    },
+    {
+      "id": "expert_2",
+      "type": "moe_expert",
+      "expert_id": 2,
+      "shape": [4096, 1024],
+      "deps": ["moe_router"],
+      "parallel_group": "experts"
+    },
+    {
+      "id": "expert_3",
+      "type": "moe_expert",
+      "expert_id": 3,
+      "shape": [4096, 1024],
+      "deps": ["moe_router"],
+      "parallel_group": "experts"
+    },
+    {
+      "id": "expert_4",
+      "type": "moe_expert",
+      "expert_id": 4,
+      "shape": [4096, 1024],
+      "deps": ["moe_router"],
+      "parallel_group": "experts"
+    },
+    {
+      "id": "expert_5",
+      "type": "moe_expert",
+      "expert_id": 5,
+      "shape": [4096, 1024],
+      "deps": ["moe_router"],
+      "parallel_group": "experts"
+    },
+    {
+      "id": "expert_6",
+      "type": "moe_expert",
+      "expert_id": 6,
+      "shape": [4096, 1024],
+      "deps": ["moe_router"],
+      "parallel_group": "experts"
+    },
+    {
+      "id": "expert_7",
+      "type": "moe_expert",
+      "expert_id": 7,
+      "shape": [4096, 1024],
+      "deps": ["moe_router"],
+      "parallel_group": "experts"
+    },
+    {
+      "id": "expert_8",
+      "type": "moe_expert",
+      "expert_id": 8,
+      "shape": [4096, 1024],
+      "deps": ["moe_router"],
+      "parallel_group": "experts"
+    },
+    {
+      "id": "expert_9",
+      "type": "moe_expert",
+      "expert_id": 9,
+      "shape": [4096, 1024],
+      "deps": ["moe_router"],
+      "parallel_group": "experts"
+    },
+    {
+      "id": "expert_10",
+      "type": "moe_expert",
+      "expert_id": 10,
+      "shape": [4096, 1024],
+      "deps": ["moe_router"],
+      "parallel_group": "experts"
+    },
+    {
+      "id": "expert_11",
+      "type": "moe_expert",
+      "expert_id": 11,
+      "shape": [4096, 1024],
+      "deps": ["moe_router"],
+      "parallel_group": "experts"
+    },
+    {
+      "id": "expert_12",
+      "type": "moe_expert",
+      "expert_id": 12,
+      "shape": [4096, 1024],
+      "deps": ["moe_router"],
+      "parallel_group": "experts"
+    },
+    {
+      "id": "expert_13",
+      "type": "moe_expert",
+      "expert_id": 13,
+      "shape": [4096, 1024],
+      "deps": ["moe_router"],
+      "parallel_group": "experts"
+    },
+    {
+      "id": "expert_14",
+      "type": "moe_expert",
+      "expert_id": 14,
+      "shape": [4096, 1024],
+      "deps": ["moe_router"],
+      "parallel_group": "experts"
+    },
+    {
+      "id": "expert_15",
+      "type": "moe_expert",
+      "expert_id": 15,
+      "shape": [4096, 1024],
+      "deps": ["moe_router"],
+      "parallel_group": "experts"
+    },
+    {
+      "id": "moe_merge",
+      "type": "elementwise",
+      "op": "add",
+      "deps": [
+        "shared_mlp",
+        "expert_0",
+        "expert_1",
+        "expert_2",
+        "expert_3",
+        "expert_4",
+        "expert_5",
+        "expert_6",
+        "expert_7",
+        "expert_8",
+        "expert_9",
+        "expert_10",
+        "expert_11",
+        "expert_12",
+        "expert_13",
+        "expert_14",
+        "expert_15"
+      ]
+    },
+    {
+      "id": "lm_head",
+      "type": "linear",
+      "shape": [4096, 8192],
+      "deps": ["moe_merge"]
+    }
+  ]
+}

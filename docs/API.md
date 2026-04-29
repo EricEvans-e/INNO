@@ -1,0 +1,127 @@
+# API 文档
+
+## 1. `src/model_parser.py`
+
+### `parse_model(model_path: Path, cube_config: CubeConfig) -> ParsedModel`
+- 功能：解析JSON/ONNX模型，构建DAG，切分Weight-Cube。
+- 输出：`ParsedModel`，包含算子字典、拓扑序、依赖图、Weight-Cube集合。
+
+### `parse_activation_trace(trace_path: Path) -> Dict[str, Any]`
+- 功能：解析MoE激活轨迹，输出共现矩阵和频率统计。
+
+---
+
+## 2. `src/mapping_solver.py`
+
+### `solve_mapping(parsed_model, activation_trace, cube_cfg, moe_cfg, packing_policy, enable_moe_optimization, enable_adaptive_replication) -> MappingResult`
+- 功能：执行空间映射。
+- 支持：
+  - `packing_policy="first_fit"|"best_fit"`
+  - `packing_policy="aspect_aware"`（通常由 Best Fit + 配置自动启用）
+  - MoE互斥分组
+  - 多起点互斥分组
+  - 热子图精确分配（小规模精确搜索）
+  - 动态 hot-subgraph top-k
+  - swap/2-opt局部搜索
+  - 模拟退火全局搜索
+  - 并行多起点搜索
+  - 冷热分层
+  - 自适应复制（含副本预算约束）
+  - 分块量化与稀疏压缩（压缩比写入placement）
+- 输出：`MappingResult`（placements、未映射列表、指标、元信息）。
+- 关键元信息：`grouping_strategy`、`exact_hot_subgraph`、`hot_subgraph_topk`、`placement_dynamic_weights`、`packing_dynamic_weights`、`constraints`。
+
+### `build_mutually_exclusive_groups(co_matrix: np.ndarray) -> List[List[int]]`
+- 功能：构建专家互斥分组。
+
+---
+
+## 3. `src/simulator.py`
+
+### `simulate(parsed_model, mapping, activation_trace, cube_cfg) -> SimulationResult`
+- 功能：静态时序模拟。
+- 约束：
+  - 依赖屏障
+  - Sub-Cube互斥
+  - 切换惩罚
+  - z层访问惩罚
+  - 子立方体异构算力与带宽
+- 扩展参数：
+  - `overlap_transfer_compute`
+  - `overlap_alpha`
+  - `overlap_model_mode="linear"|"nonlinear_bandwidth_aware"`
+  - `overlap_bw_power_law_alpha`
+  - `overlap_z_depth_penalty`
+  - `load_balance_weight`
+  - `dispatch_policy="fifo"|"criticality"`
+  - `criticality_weight`
+  - `resource_pressure_weight`
+- 输出指标：
+  - `latency`
+  - `space_utilization`
+  - `temporal_utilization`
+  - `pipeline_bubble_cycles`
+  - `switching_penalty_cycles`
+  - `memory_utilization`
+  - `avg_bandwidth_utilization`
+  - `max_bandwidth_utilization`
+  - `effective_bandwidth_bytes_per_cycle`
+  - `subcube_busy_imbalance`
+  - `parallel_limit_wait_cycles`
+
+---
+
+## 4. `src/utils.py`
+
+### 数据与统计
+- `load_json` / `save_json`
+- `build_cooccurrence_matrix`
+- `compute_expert_frequency`
+
+### 可视化
+- `plot_cooccurrence_heatmap`
+- `plot_mapping_slices`
+- `plot_schedule_gantt`
+- `plot_latency_distribution`
+- `plot_subcube_contention`
+
+---
+
+## 5. `main.py`
+
+### `run_pipeline(model_path, trace_path, output_dir, moe_cfg_override, export_profile) -> Dict[str, Any]`
+- 功能：一键执行基线与优化策略，输出对比结果与图表。
+- 截至 2026-04-29，`run_pipeline` 还支持覆盖 cube/moe 配置、overlap 模型、调度策略、resource pressure 与 seed。
+- 每次新运行会输出 `baseline_solution.json`、`ablation_no_moe_solution.json`、`ablation_no_replication_solution.json`、`optimized_solution.json`、最终提交用 `solution.json` 和 `run_manifest.json`。
+
+### CLI
+```bash
+python main.py --model data/sample_model.json --trace data/sample_trace.json --output outputs --profile
+python main.py --model data/sample_model.json --trace data/sample_trace.json --output outputs --search-trials 12 --parallel-workers 6
+python main.py --model data/sample_model.json --trace data/sample_trace.json --output outputs/smoke --profile --deterministic --search-trials 1 --parallel-workers 1 --local-restarts 1 --local-iters 5 --disable-sa --disable-parallel-search
+python main.py --model data/sample_model.json --trace data/sample_trace.json --output outputs/nonlinear --profile --overlap-transfer-compute --overlap-model-mode nonlinear_bandwidth_aware --resource-pressure-weight 0.2 --dispatch-policy criticality --criticality-weight 0.3
+```
+
+---
+
+## 6. 自动化脚本
+
+### `scripts/tune_optuna.py`
+- 功能：自动化单目标超参搜索，输出 `best_params.json` 与 `tuning_trials.csv`。
+- 支持：多 trace 鲁棒目标、p95/p99 尾延时、holdout 验证、trace 权重、两阶段调参、`--n-jobs` 并行。
+
+### `scripts/parallel_benchmark.py`
+- 功能：并行批量评估多组配置，输出 `parallel_benchmark_summary.json` 与 `parallel_benchmark.csv`。
+
+### `scripts/generate_materials.py`
+- 功能：根据 `outputs/` 自动生成赛题材料：PPT提纲、2分钟讲稿、提交检查清单。
+
+### `scripts/tune_optuna_multi.py`
+- 功能：自动化多目标 Pareto 搜索，输出 `multiobjective_pareto.json`。
+- 支持：多 trace 鲁棒目标、holdout top-k 评估、trace 权重、两阶段调参、`--n-jobs` 并行。
+
+### `scripts/short_term_optimize.py`
+- 功能：低成本网格搜索，输出 `short_term_best.json`、`short_term_grid_results.csv`、`short_term_report.md`。
+
+### `scripts/export_gate_traces.py`
+- 功能：导出或模拟 MoE gate 激活轨迹。`--mode mock` 不依赖深度学习框架；`--mode torch` 可用自定义 factory 与 gate attribute path 采样真实模型。
