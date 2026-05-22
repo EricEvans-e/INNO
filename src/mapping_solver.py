@@ -461,6 +461,7 @@ def _shared_replica_count(
     cube: WeightCube,
     parsed_model: ParsedModel,
     moe_cfg: MoEConfig,
+    operator_types: set[str],
     enabled: bool,
 ) -> int:
     if not enabled or not moe_cfg.enable_shared_operator_replication:
@@ -468,7 +469,7 @@ def _shared_replica_count(
     if cube.expert_id is not None:
         return 1
     op = parsed_model.operators.get(cube.operator_id, {})
-    if op.get("type") not in set(moe_cfg.shared_replication_operator_types):
+    if op.get("type") not in operator_types:
         return 1
     volume = cube.h * cube.w * cube.d
     if volume < moe_cfg.shared_replication_min_volume:
@@ -1390,6 +1391,8 @@ def solve_mapping(
     logical_volume = float(sum(c.h * c.w * c.d for c in cubes))
     extra_replica_budget = logical_volume * moe_cfg.replication_volume_budget_ratio
     extra_replica_used = 0.0
+    effective_adaptive_replication = bool(enable_adaptive_replication and moe_cfg.enable_adaptive_replication)
+    shared_replication_operator_types = set(moe_cfg.shared_replication_operator_types)
     shared_replica_requested = 0
     shared_replica_mapped = 0
     subcube_used_volume: Dict[int, float] = {sc: 0.0 for sc in range(cube_cfg.num_subcubes)}
@@ -1414,14 +1417,15 @@ def solve_mapping(
             transition_influence=transition_influence,
             max_transition=max_transition,
             moe_cfg=moe_cfg,
-            enabled=enable_adaptive_replication and moe_cfg.enable_adaptive_replication,
+            enabled=effective_adaptive_replication,
         )
         if requested_replicas == 1:
             requested_replicas = _shared_replica_count(
                 cube,
                 parsed_model,
                 moe_cfg,
-                enabled=enable_adaptive_replication,
+                operator_types=shared_replication_operator_types,
+                enabled=effective_adaptive_replication,
             )
             if requested_replicas > 1:
                 shared_replica_requested += 1
@@ -1589,7 +1593,7 @@ def solve_mapping(
             "extra_replica_budget": extra_replica_budget,
             "extra_replica_used": extra_replica_used,
             "shared_operator_replication": {
-                "enabled": bool(moe_cfg.enable_shared_operator_replication and enable_adaptive_replication),
+                "enabled": bool(moe_cfg.enable_shared_operator_replication and effective_adaptive_replication),
                 "operator_types": list(moe_cfg.shared_replication_operator_types),
                 "min_volume": int(moe_cfg.shared_replication_min_volume),
                 "max_replicas": int(moe_cfg.shared_replication_max_replicas),
