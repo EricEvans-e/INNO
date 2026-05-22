@@ -14,13 +14,19 @@ $PY = "E:/Users/Eric/Desktop/Inno/saidao2/.venv/Scripts/python.exe"
 - [x] `solution.json` 顶层包含 `weight_cubes` 与 `schedule`
 - [x] `scripts/validate_submission.py` 可独立验证提交目录
 
-## 验证
+## V5 验证
 
 - [x] `& $PY -m pytest -q`: 9 passed
 - [x] `outputs/v5_smoke_strict_venv`: validator pass
 - [x] `outputs/submission_v5_primary`: validator pass
 - [x] `outputs/submission_v5_backup`: validator pass
 - [x] `outputs/large_scale_v5/run_strict`: validator pass
+
+## 2026-05-22 main 后续验证
+
+- [x] `& $PY -m pytest -q`: 14 passed, 18 warnings
+- [x] `outputs/v6_shared_replication_smoke`: validator pass, capacity_ratio 1.9862 <= 2.0
+- [x] shared/non-expert operator replication 已接入 `main.py` CLI 与 `optimized_mapping.json` 元信息
 
 ## 最终产物
 
@@ -45,4 +51,3 @@ $PY = "E:/Users/Eric/Desktop/Inno/saidao2/.venv/Scripts/python.exe"
 ## 复现入口
 
 完整调参、复跑和 validator 命令见 `docs/SUBMISSION_PARAM_CARD_V5.md`。
-

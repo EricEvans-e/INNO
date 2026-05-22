@@ -18,9 +18,24 @@ $PY = "E:/Users/Eric/Desktop/Inno/saidao2/.venv/Scripts/python.exe"
 
 ```powershell
 & $PY -m pytest -q
-& $PY main.py --model data/sample_model.json --trace data/sample_trace.json --output outputs/v5_smoke_strict_venv --profile --deterministic --search-trials 1 --parallel-workers 1 --local-restarts 1 --local-iters 5 --disable-sa --disable-parallel-search --cube-d 2 --strict-capacity --capacity-max-ratio 2.0
-& $PY scripts/validate_submission.py --output outputs/v5_smoke_strict_venv --strict-capacity --capacity-max-ratio 2.0 --report outputs/v5_smoke_strict_venv/validation_report.json
+& $PY main.py --model data/sample_model.json --trace data/sample_trace.json --output outputs/v6_shared_replication_smoke --profile --deterministic --search-trials 1 --parallel-workers 1 --local-restarts 1 --local-iters 5 --disable-sa --disable-parallel-search --cube-d 2 --strict-capacity --capacity-max-ratio 2.0 --replication-volume-budget-ratio 0.45 --shared-replication-max-replicas 2 --shared-replication-min-volume 16777216 --overlap-transfer-compute --overlap-alpha 0.7872434125774002 --overlap-model-mode nonlinear_bandwidth_aware --overlap-bw-power-law-alpha 1.190361785167963 --overlap-z-depth-penalty 0.028146737699334498
+& $PY scripts/validate_submission.py --output outputs/v6_shared_replication_smoke --strict-capacity --capacity-max-ratio 2.0 --report outputs/v6_shared_replication_smoke/validation_report.json
 ```
+
+## 当前 main 后续优化
+
+V5 仍是当前提交基线；`main` 上已经合并后续 shared/non-expert operator replication 优化，用于继续压低严格容量 smoke 时延。
+使用当前 `main` 复现历史 V5 参数卡时，`main.py` 命令需要显式加入 `--disable-shared-replication`，避免跑成 post-V5 行为。
+
+`outputs/v6_shared_replication_smoke/`：
+
+- baseline latency: 16,706
+- optimized latency: 8,073
+- latency improvement: 51.68%
+- conflict_score: 24.0
+- mapping_rate: 1.0
+- capacity_ratio: 1.9862 <= 2.0
+- validator: pass
 
 ## V5 最终结果
 
@@ -84,4 +99,11 @@ cim_3d_scheduler/
 - `scripts/validate_submission.py` 校验容量比例、坐标越界、空间重叠、Sub-Cube 互斥、依赖/并发约束、unplaced 和 mapping_rate。
 - 映射评分加入 `transition_conflict_weight`，降低高频相邻/交替专家造成的切换与冲突风险。
 - `scripts/generate_synthetic_model.py` 生成 DeepSeek/MoE 风格 metadata-only 大模型与 trace，用于证明大规模适配能力。
+
+## 当前 main 关键增强
+
+- `config/moe_config.py` 新增 shared/non-expert operator replication 开关和阈值：`enable_shared_operator_replication`、`shared_replication_min_volume`、`shared_replication_max_replicas`。
+- `main.py` 新增 CLI：`--disable-shared-replication`、`--shared-replication-min-volume`、`--shared-replication-max-replicas`。
+- `optimized_mapping.json` 的 `metadata.shared_operator_replication` 记录启用状态、候选算子类型、请求复制的逻辑块数和实际额外物理副本数。
+- 消融输出名已改为 `ablation_best_fit_replication_only_*` 和 `ablation_moe_without_replication_*`，分别表达“仅 Best Fit/复制”和“MoE 无复制”。
 

@@ -27,9 +27,20 @@
   - 并行多起点搜索
   - 冷热分层
   - 自适应复制（含副本预算约束）
+  - shared/non-expert operator replication（大共享算子在额外副本预算内复制）
   - 分块量化与稀疏压缩（压缩比写入placement）
 - 输出：`MappingResult`（placements、未映射列表、指标、元信息）。
-- 关键元信息：`grouping_strategy`、`exact_hot_subgraph`、`hot_subgraph_topk`、`placement_dynamic_weights`、`packing_dynamic_weights`、`constraints`。
+- 关键元信息：`grouping_strategy`、`exact_hot_subgraph`、`hot_subgraph_topk`、`placement_dynamic_weights`、`packing_dynamic_weights`、`constraints`、`shared_operator_replication`。
+
+`shared_operator_replication` 包含：
+
+- `enabled`: shared/non-expert operator replication 是否在当前 mapping 中启用。
+- `operator_types`: 可复制的共享算子类型，默认包含 `linear`。
+- `min_volume`: 触发共享算子复制的最小逻辑体积。
+- `max_replicas`: 单个符合条件共享算子的最大副本数。
+- `requested_logical_cubes`: 请求复制的逻辑 Weight-Cube 数。
+- `extra_physical_replicas`: 实际放置成功的额外物理副本数。
+- `replicated_logical_cubes`: 最终拥有多个物理 placement 的非专家逻辑 Weight-Cube 数。
 
 ### `build_mutually_exclusive_groups(co_matrix: np.ndarray) -> List[List[int]]`
 - 功能：构建专家互斥分组。
@@ -91,7 +102,7 @@
 
 ### `run_pipeline(model_path, trace_path, output_dir, moe_cfg_override, export_profile) -> Dict[str, Any]`
 - 功能：一键执行基线与优化策略，输出对比结果与图表。
-- 截至 2026-04-29，`run_pipeline` 还支持覆盖 cube/moe 配置、overlap 模型、调度策略、resource pressure 与 seed。
+- `run_pipeline` 支持覆盖 cube/moe 配置、overlap 模型、调度策略、resource pressure、严格容量与 seed。
 - 每次新运行会输出 `baseline_solution.json`、`ablation_best_fit_replication_only_solution.json`、`ablation_moe_without_replication_solution.json`、`optimized_solution.json`、最终提交用 `solution.json` 和 `run_manifest.json`。
 
 ### CLI
@@ -100,7 +111,14 @@ python main.py --model data/sample_model.json --trace data/sample_trace.json --o
 python main.py --model data/sample_model.json --trace data/sample_trace.json --output outputs --search-trials 12 --parallel-workers 6
 python main.py --model data/sample_model.json --trace data/sample_trace.json --output outputs/smoke --profile --deterministic --search-trials 1 --parallel-workers 1 --local-restarts 1 --local-iters 5 --disable-sa --disable-parallel-search
 python main.py --model data/sample_model.json --trace data/sample_trace.json --output outputs/nonlinear --profile --overlap-transfer-compute --overlap-model-mode nonlinear_bandwidth_aware --resource-pressure-weight 0.2 --dispatch-policy criticality --criticality-weight 0.3
+python main.py --model data/sample_model.json --trace data/sample_trace.json --output outputs/shared_replication_smoke --profile --deterministic --cube-d 2 --strict-capacity --capacity-max-ratio 2.0 --replication-volume-budget-ratio 0.45 --shared-replication-min-volume 16777216 --shared-replication-max-replicas 2
 ```
+
+Shared replication CLI:
+
+- `--disable-shared-replication`: 关闭大共享/非专家算子复制。
+- `--shared-replication-min-volume`: 设置触发复制的最小逻辑体积，默认 `16777216`。
+- `--shared-replication-max-replicas`: 设置符合条件共享算子的最大副本数，默认 `2`。
 
 ---
 
