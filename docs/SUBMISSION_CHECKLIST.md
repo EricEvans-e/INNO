@@ -27,6 +27,8 @@ $PY = "E:/Users/Eric/Desktop/Inno/saidao2/.venv/Scripts/python.exe"
 - [x] `& $PY -m pytest -q`: 14 passed, 18 warnings
 - [x] `outputs/v6_shared_replication_smoke`: validator pass, capacity_ratio 1.9862 <= 2.0
 - [x] shared/non-expert operator replication 已接入 `main.py` CLI 与 `optimized_mapping.json` 元信息
+- [x] `outputs/v6_shared_replication_balanced_candidate`: validator pass, latency 234,436，未超过 V5 primary
+- [x] `outputs/v6_shared_replication_balanced_budget045`: validator pass, latency 333,003，放宽共享复制预算后退化
 
 ## 最终产物
 

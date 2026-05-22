@@ -37,6 +37,12 @@ V5 仍是当前提交基线；`main` 上已经合并后续 shared/non-expert ope
 - capacity_ratio: 1.9862 <= 2.0
 - validator: pass
 
+`trace_balanced` 复核结论：
+
+- `outputs/v6_shared_replication_balanced_candidate`: latency 234,436，等同 V5 primary；shared replication 请求 5 个逻辑块但实际额外物理副本为 0。
+- `outputs/v6_shared_replication_balanced_budget045`: latency 333,003，validator pass，但低于 V5 primary；共享副本实际生效后挤占/扰动专家副本收益。
+- 因此当前正式提交仍以 V5 primary 为准，暂不生成 V6 参数卡。
+
 ## V5 最终结果
 
 主方案 `outputs/submission_v5_primary/`：

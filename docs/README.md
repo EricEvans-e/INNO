@@ -41,6 +41,10 @@ $PY = "E:/Users/Eric/Desktop/Inno/saidao2/.venv/Scripts/python.exe"
 | 目录 | 用途 | baseline latency | optimized latency | improvement | capacity_ratio | validator |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
 | `outputs/v6_shared_replication_smoke` | shared/non-expert operator replication 严格容量 smoke | 16,706 | 8,073 | 51.68% | 1.9862 | pass |
+| `outputs/v6_shared_replication_balanced_candidate` | V5 primary 参数 + shared replication，`trace_balanced` 复核 | 539,729 | 234,436 | 56.56% | 1.9862 | pass |
+| `outputs/v6_shared_replication_balanced_budget045` | 放宽共享复制预算探索，`trace_balanced` 复核 | 539,729 | 333,003 | 38.30% | 1.9862 | pass |
+
+`trace_balanced` 上，shared replication 候选没有超过 V5 primary；预算放宽后虽然共享副本实际放置成功，但 latency 退化。因此当前正式提交口径仍以 V5 primary 为准。
 
 ## 主要产物
 
