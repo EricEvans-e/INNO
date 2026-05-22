@@ -48,5 +48,8 @@ def test_pipeline_exports_clear_ablation_variants(tmp_path: Path) -> None:
 	assert "ablation_moe_without_replication" in comparison["ablation"]
 	assert "ablation_no_moe" not in comparison["ablation"]
 	assert (output_dir / "ablation_best_fit_replication_only_mapping.json").exists()
+	assert (output_dir / "ablation_moe_without_replication_mapping.json").exists()
+	assert (output_dir / "ablation_best_fit_replication_only_solution.json").exists()
+	assert (output_dir / "ablation_moe_without_replication_solution.json").exists()
 	mapping = load_json(output_dir / "optimized_mapping.json")
 	assert "shared_operator_replication" in mapping["metadata"]

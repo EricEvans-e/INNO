@@ -92,7 +92,7 @@
 ### `run_pipeline(model_path, trace_path, output_dir, moe_cfg_override, export_profile) -> Dict[str, Any]`
 - 功能：一键执行基线与优化策略，输出对比结果与图表。
 - 截至 2026-04-29，`run_pipeline` 还支持覆盖 cube/moe 配置、overlap 模型、调度策略、resource pressure 与 seed。
-- 每次新运行会输出 `baseline_solution.json`、`ablation_no_moe_solution.json`、`ablation_no_replication_solution.json`、`optimized_solution.json`、最终提交用 `solution.json` 和 `run_manifest.json`。
+- 每次新运行会输出 `baseline_solution.json`、`ablation_best_fit_replication_only_solution.json`、`ablation_moe_without_replication_solution.json`、`optimized_solution.json`、最终提交用 `solution.json` 和 `run_manifest.json`。
 
 ### CLI
 ```bash
