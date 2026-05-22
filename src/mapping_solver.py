@@ -1423,6 +1423,8 @@ def solve_mapping(
                 moe_cfg,
                 enabled=enable_adaptive_replication,
             )
+            if requested_replicas > 1:
+                shared_replica_requested += 1
         cube_volume = float(cube.h * cube.w * cube.d)
         replicas = 1
         for _ in range(1, requested_replicas):
@@ -1432,8 +1434,6 @@ def solve_mapping(
             else:
                 break
         is_shared_operator_replica = cube.expert_id is None and replicas > 1
-        if is_shared_operator_replica:
-            shared_replica_requested += 1
 
         candidate_subcubes = list(range(cube_cfg.num_subcubes))
         if enable_moe_optimization and cube.expert_id is not None and cube.expert_id in expert_to_group:
