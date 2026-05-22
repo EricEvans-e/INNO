@@ -32,6 +32,10 @@ class MoEConfig:
     dynamic_hot_subgraph_min_ratio: float = 0.15
     dynamic_hot_subgraph_max_ratio: float = 0.30
     replication_volume_budget_ratio: float = 0.25
+    enable_shared_operator_replication: bool = True
+    shared_replication_operator_types: tuple[str, ...] = ("linear",)
+    shared_replication_min_volume: int = 16_777_216
+    shared_replication_max_replicas: int = 2
     replication_freq_weight: float = 0.55
     replication_contention_weight: float = 0.2
     replication_burst_weight: float = 0.15
@@ -90,6 +94,12 @@ class MoEConfig:
             raise ValueError("dynamic_hot_subgraph_min_ratio must be <= dynamic_hot_subgraph_max_ratio")
         if not (0.0 <= self.replication_volume_budget_ratio <= 1.0):
             raise ValueError("replication_volume_budget_ratio must be in [0, 1]")
+        if self.shared_replication_min_volume <= 0:
+            raise ValueError("shared_replication_min_volume must be positive")
+        if self.shared_replication_max_replicas < 1:
+            raise ValueError("shared_replication_max_replicas must be >= 1")
+        if not self.shared_replication_operator_types:
+            raise ValueError("shared_replication_operator_types must not be empty")
         if self.replica_pressure_low_threshold < 0:
             raise ValueError("replica_pressure_low_threshold must be >= 0")
         if self.replica_pressure_high_threshold < 0:
