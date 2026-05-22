@@ -264,12 +264,12 @@ def run_pipeline(
             "enable_moe_optimization": False,
             "enable_adaptive_replication": False,
         },
-        "ablation_no_moe": {
+        "ablation_best_fit_replication_only": {
             "packing_policy": "best_fit",
             "enable_moe_optimization": False,
             "enable_adaptive_replication": True,
         },
-        "ablation_no_replication": {
+        "ablation_moe_without_replication": {
             "packing_policy": "best_fit",
             "enable_moe_optimization": True,
             "enable_adaptive_replication": False,
@@ -454,6 +454,23 @@ def main() -> None:
         type=float,
         default=DEFAULT_MOE_CONFIG.replication_volume_budget_ratio,
         help="Extra replication volume budget ratio in [0,1]",
+    )
+    parser.add_argument(
+        "--disable-shared-replication",
+        action="store_true",
+        help="Disable adaptive replication for large non-expert shared operators",
+    )
+    parser.add_argument(
+        "--shared-replication-min-volume",
+        type=int,
+        default=DEFAULT_MOE_CONFIG.shared_replication_min_volume,
+        help="Minimum logical volume for non-expert shared-operator replication",
+    )
+    parser.add_argument(
+        "--shared-replication-max-replicas",
+        type=int,
+        default=DEFAULT_MOE_CONFIG.shared_replication_max_replicas,
+        help="Maximum replicas for eligible non-expert shared operators",
     )
     parser.add_argument(
         "--hot-quant-bits",
@@ -649,6 +666,9 @@ def main() -> None:
         enable_blockwise_quantization=(not args.disable_compression),
         enable_sparse_compression=(not args.disable_compression),
         replication_volume_budget_ratio=max(0.0, min(1.0, args.replication_volume_budget_ratio)),
+        enable_shared_operator_replication=(not args.disable_shared_replication),
+        shared_replication_min_volume=max(1, int(args.shared_replication_min_volume)),
+        shared_replication_max_replicas=max(1, int(args.shared_replication_max_replicas)),
         hot_quant_bits=max(2, min(8, args.hot_quant_bits)),
         cold_quant_bits=max(2, min(8, args.cold_quant_bits)),
         hot_sparsity_ratio=max(0.0, min(0.99, args.hot_sparsity_ratio)),
@@ -731,7 +751,7 @@ def main() -> None:
     print(f"Seed: {int(args.seed)}")
     print(f"Deterministic mode: {bool(args.deterministic)}")
     print("\nAblation latency (cycles):")
-    for key in ["baseline", "ablation_no_moe", "ablation_no_replication", "optimized"]:
+    for key in ["baseline", "ablation_best_fit_replication_only", "ablation_moe_without_replication", "optimized"]:
         print(f"  - {key}: {comparison['ablation'][key]['metrics']['latency']:.2f}")
 
 
