@@ -1,0 +1,31 @@
+\section{系统结构与接口设计}
+图~\ref{fig:architecture} 展示了系统的数据流。解析器输出算子、依赖 DAG 与 Weight-Cube；轨迹模块输出共现、频率、burstiness 和转移影响；映射器生成物理放置及副本元数据；模拟器生成静态 schedule 和性能指标；验证器最终检查空间边界、重叠、调度互斥、依赖与映射率。各阶段均以 JSON 产物固化，因而能够从最终 \texttt{solution.json} 回溯到输入哈希和配置。
+
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[
+  node distance=8mm and 10mm,
+  box/.style={draw,rounded corners=2pt,minimum width=27mm,minimum height=12mm,align=center,fill=blue!5},
+  resultbox/.style={draw,rounded corners=2pt,minimum width=27mm,minimum height=12mm,align=center,fill=orange!10},
+  arrow/.style={-{Stealth[length=2mm]},thick}
+]
+\node[box] (model) {模型输入\\JSON / ONNX};
+\node[box,right=of model] (parser) {模型解析与\\Weight-Cube 切分};
+\node[box,right=of parser] (mapping) {共现感知映射\\分组与副本};
+\node[box,right=of mapping] (sim) {静态调度\\性能模拟};
+\node[resultbox,right=of sim] (solution) {\texttt{solution.json}\\映射、调度与指标};
+\node[box,below=of parser] (trace) {激活轨迹\\共现/频率/转移};
+\node[resultbox,below=of sim] (validator) {提交验证器\\边界、互斥、依赖};
+\draw[arrow] (model)--(parser);
+\draw[arrow] (parser)--(mapping);
+\draw[arrow] (mapping)--(sim);
+\draw[arrow] (sim)--(solution);
+\draw[arrow] (trace)--(mapping);
+\draw[arrow] (solution)--(validator);
+\draw[arrow] (mapping)|-(validator);
+\end{tikzpicture}
+\caption{项目端到端部署与验证流程。}
+\label{fig:architecture}
+\end{figure*}
+
+输入模型采用算子级元数据表示，支持线性、MoE 专家、MatMul/Gemm 与轻量非线性任务。ONNX 路径是 initializer-backed 结构适配，不宣称覆盖完整 ONNX 执行语义。激活轨迹适配器接受顶层 \texttt{traces}、\texttt{records} 或 \texttt{activations}，并统一单条记录的 \texttt{active\_experts}、\texttt{expert\_ids}、\texttt{experts} 与 \texttt{topk\_experts} 字段，为后续替换官方轨迹保留接口。

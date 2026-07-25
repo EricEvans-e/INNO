@@ -1,0 +1,38 @@
+\usepackage[left=19mm,right=19mm,top=20mm,bottom=20mm,columnsep=8mm]{geometry}
+\usepackage{fontspec}
+\usepackage{xeCJK}
+\setmainfont{TeX Gyre Termes}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,bm}
+\usepackage{booktabs,tabularx,multirow}
+\usepackage{graphicx,float}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{caption}
+\usepackage{fancyhdr}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,calc}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage[backend=biber,style=numeric,sorting=none,maxbibnames=99]{biblatex}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true,linkcolor=black,citecolor=black,urlcolor=blue}
+\captionsetup{font=small,labelfont=bf,labelsep=quad}
+\setlength{\parindent}{2em}
+\setlength{\parskip}{0pt}
+\linespread{1.16}\selectfont
+\setlist{nosep,leftmargin=1.5em}
+\titleformat{\section}{\large\bfseries\heiti}{\thesection}{0.6em}{}
+\titleformat{\subsection}{\normalsize\bfseries\heiti}{\thesubsection}{0.5em}{}
+\titlespacing*{\section}{0pt}{1.1ex plus .2ex}{.65ex}
+\titlespacing*{\subsection}{0pt}{.9ex plus .2ex}{.5ex}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[LE,RO]{\small 3D 异构 CIM 资源调度优化}
+\fancyhead[LO,RE]{\small 2026 INNO CIM 存算一体高校挑战赛}
+\fancyfoot[C]{\small\thepage}
+\renewcommand{\headrulewidth}{0.35pt}
+\renewcommand{\footrulewidth}{0pt}
+\newcommand{\term}[1]{\textbf{#1}}
+\newcommand{\candidate}{\textit{候选}}

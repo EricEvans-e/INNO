@@ -1,0 +1,14 @@
+\begin{center}
+{\Large\heiti 面向 MoE 大模型推理的 3D 异构 CIM 资源调度优化\par}
+\vspace{3mm}
+\end{center}
+\noindent\term{摘\quad 要}\quad
+面向 Mixture-of-Experts（MoE）大模型推理，3D 存算一体（Computing-in-Memory, CIM）资源的权重部署同时受到容量、空间互斥、依赖屏障和切换开销约束。本文实现一套面向赛题二的模型解析、Weight-Cube 切分、空间映射与静态调度一体化框架。该框架从激活轨迹提取专家共现、频率和转移统计，以互斥分组、热点子图分配、局部搜索和自适应副本策略降低资源争用；随后在 Sub-Cube 互斥、严格依赖、切换惩罚以及可选传输/计算重叠条件下生成可验证调度。以严格容量配置 $N=3,D=2,H=W=4096$ 的平衡轨迹为例，正式推荐的 V5 primary 方案将端到端模拟延迟从 539,729 cycles 降至 \PrimaryLatency{} cycles，降低 \PrimaryImprovement{}，映射率为 1.0，容量比为 \PrimaryCapacity{}。在 \LargeExperts{} 专家 metadata-only 大规模验证中，优化方案获得 \LargeLatency{} cycles 和 \LargeImprovement{} 的延迟降低。本文同时保留 \texttt{solution.json}、映射表、静态调度、运行清单和独立验证器，便于复现与答辩核验。V5.1 的 \CandidateLatency{} cycles 结果仅作为官方激活轨迹到来前的增强候选，不作为正式结论。
+
+\noindent\term{关键词}\quad 3D 存算一体；Mixture-of-Experts；资源调度；静态映射；Weight-Cube；激活轨迹
+
+\vspace{1mm}
+\noindent\term{Abstract}\quad
+This report presents an end-to-end 3D heterogeneous CIM scheduling framework for MoE-style inference. It combines model parsing, Weight-Cube partitioning, trace-aware placement, adaptive replication and static scheduling under capacity, exclusivity, dependency and switching constraints. On the balanced mock trace under a strict $N=3,D=2,H=W=4096$ configuration, the formal V5 primary reduces simulated latency from 539,729 to \PrimaryLatency{} cycles (\PrimaryImprovement{}), with a mapping rate of 1.0 and a capacity ratio of \PrimaryCapacity{}. The large-scale metadata-only experiment covers \LargeExperts{} experts and reports \LargeLatency{} cycles after optimization. All claims are bounded to the implemented simulator and supplied traces; the V5.1 result is retained as a candidate pending official-trace validation.
+
+\noindent\term{Key words}\quad 3D computing-in-memory; mixture of experts; resource scheduling; static mapping; activation trace

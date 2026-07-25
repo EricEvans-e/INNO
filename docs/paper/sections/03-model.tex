@@ -1,0 +1,19 @@
+\section{工作原理与数学建模}
+\subsection{3D 资源模型}
+整个 CIM 资源空间由 $N^2$ 个相互独立的 Sub-Cube 构成。每个 Sub-Cube 的尺寸为 $D\times H\times W$，其中 $N\in[2,4]$，$H,W\in[4096,16384]$，而 $D$ 由部署者设定。单个 Sub-Cube 的任意时刻仅允许激活一个 Weight-Cube，不同 Sub-Cube 可并行执行，但总并行数受配置上限约束。配置在一次模型部署期间保持静态，符合权重驻留约束。
+
+给定二维权重矩阵 $W\in\mathbb{R}^{m\times n}$，解析器先以 $H$ 为上界作水平切分，再以 $W$ 为上界作垂直切分。第 $k$ 个 Weight-Cube 表示为 $C_k=(h_k,w_k,d_k)$，本实现采用 $d_k=1$ 的分层放置。该网格切分可由连续的水平与垂直切分构成，不引入对角或旋转边界。
+
+\subsection{轨迹统计与优化目标}
+对包含 $T$ 条推理记录的轨迹，令 $a_t$ 为第 $t$ 次推理激活的专家集合。专家 $i,j$ 的共现矩阵定义为
+\begin{equation}
+M_{ij}=\sum_{t=1}^{T}\mathbb{I}(i\in a_t\land j\in a_t).
+\end{equation}
+当 $M_{ij}=0$ 时，二者可以作为共享同一 Sub-Cube 的互斥候选；频率 $f_i=\sum_t\mathbb{I}(i\in a_t)$ 则用于识别热点专家。优化按优先级处理：最小化端到端延迟 $L$，最大化空间利用率 $U_s$，并确保映射率 $R_m=1$。其中
+\begin{equation}
+U_s=\frac{\sum_{p\in\mathcal{P}}\mathrm{vol}(p)}{N^2DHW},
+\end{equation}
+$\mathcal{P}$ 为成功放置的物理副本集合。复制必须同时满足几何无重叠与赛题容量比约束。
+
+\subsection{调度约束}
+对任务 $q$，其开始时间 $s_q$ 至少不小于所有前驱任务的完成时间；若两个任务使用同一 Sub-Cube，则其执行区间不得重叠。不同 Weight-Cube 在同一 Sub-Cube 上连续执行会产生切换惩罚，较深 z 层引入额外访问代价。跨 Sub-Cube 依赖可按跨核传输惩罚参数计入传输开销；当前正式实验的该参数为 0，因此本文不将跨核传输延迟解释为已完成芯片标定。该模拟器定位为调度层的性能评估工具，与加速器设计空间评估的通用思路一致\cite{parashar2019timeloop}。
