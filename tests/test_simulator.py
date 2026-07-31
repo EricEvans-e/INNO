@@ -46,6 +46,10 @@ def test_simulator_outputs_metrics() -> None:
     assert optimized_sim.metrics["subcube_busy_imbalance"] >= 0
     assert optimized_sim.metrics["effective_bandwidth_bytes_per_cycle"] >= 0
     assert optimized_sim.metrics["parallel_limit_wait_cycles"] >= 0
+    assert "inter_subcube_transfer_penalty_cycles" in optimized_sim.metrics
+    assert optimized_sim.metrics["inter_subcube_transfer_penalty_cycles"] >= 0
+    assert "parameter_density" in optimized_sim.metrics
+    assert optimized_sim.metrics["parameter_density"] >= 0
 
     profiling = optimized_sim.metadata.get("profiling", {})
     assert "latency_by_inference" in profiling
@@ -57,6 +61,31 @@ def test_simulator_outputs_metrics() -> None:
     assert "subcube_exclusivity_violations" in constraints
     assert "dependency_violations" in constraints
     assert "valid" in constraints
+
+
+def test_simulator_inter_subcube_transfer_penalty() -> None:
+    from config.cube_config import CubeConfig
+
+    cube_cfg = CubeConfig(inter_subcube_transfer_penalty=5)
+    model = parse_model(ROOT / "data" / "sample_model.json", cube_cfg)
+    trace = parse_activation_trace(ROOT / "data" / "sample_trace.json")
+
+    mapping = solve_mapping(
+        model,
+        trace,
+        cube_cfg,
+        DEFAULT_MOE_CONFIG,
+        packing_policy="best_fit",
+        enable_moe_optimization=True,
+        enable_adaptive_replication=True,
+    )
+
+    sim = simulate(model, mapping, trace, cube_cfg)
+
+    assert sim.metrics["latency"] > 0
+    assert "inter_subcube_transfer_penalty_cycles" in sim.metrics
+    assert sim.metrics["inter_subcube_transfer_penalty_cycles"] >= 0
+    assert sim.metadata["inter_subcube_transfer_penalty"] == 5
 
 
 def test_simulator_criticality_dispatch_mode() -> None:

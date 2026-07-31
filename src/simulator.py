@@ -323,6 +323,7 @@ def simulate(
             metrics={
                 "latency": 0.0,
                 "space_utilization": float(mapping.metrics.get("space_utilization", 0.0)),
+                "parameter_density": float(mapping.metrics.get("parameter_density", 0.0)),
                 "mapping_rate": float(mapping.metrics.get("mapping_rate", 0.0)),
                 "temporal_utilization": 0.0,
                 "pipeline_bubble_cycles": 0.0,
@@ -443,7 +444,9 @@ def simulate(
     total_bubble = 0
     total_compute_cycles = 0
     total_switch_cycles = 0
+    total_transfer_penalty_cycles = 0
     parallel_limit_wait_cycles = 0
+    task_to_subcube: Dict[str, int] = {}
 
     infer_start: Dict[int, int] = {}
     infer_end: Dict[int, int] = {}
@@ -481,6 +484,7 @@ def simulate(
             total_compute_cycles += duration
             total_bubble += max(0, start - earliest_ready)
             finished_at[task_id] = end
+            task_to_subcube[task_id] = -1
             infer_start[task.inference_id] = min(infer_start.get(task.inference_id, start), start)
             infer_end[task.inference_id] = max(infer_end.get(task.inference_id, end), end)
         else:
@@ -495,7 +499,14 @@ def simulate(
                 switch_penalty = 0
                 if subcube_last_cube[sc] is not None and subcube_last_cube[sc] != pid:
                     switch_penalty = cube_cfg.switching_penalty
-                start = max(earliest_ready, subcube_available[sc] + switch_penalty)
+                transfer_penalty = 0
+                if cube_cfg.inter_subcube_transfer_penalty > 0:
+                    for dep_id in task.deps:
+                        dep_sc = task_to_subcube.get(dep_id)
+                        if dep_sc is not None and dep_sc >= 0 and dep_sc != sc:
+                            transfer_penalty = cube_cfg.inter_subcube_transfer_penalty
+                            break
+                start = max(earliest_ready, subcube_available[sc] + switch_penalty + transfer_penalty)
                 logical_bytes = float(parsed_model.weight_cubes[task.logical_cube_id].bytes_size)
                 bytes_size = logical_bytes * float(getattr(p, "compression_ratio", 1.0))
                 base_compute = 1 + p.d + cube_cfg.z_access_penalty * p.z
@@ -547,7 +558,7 @@ def simulate(
                     end,
                     start,
                     duration,
-                    switch_penalty,
+                    switch_penalty + transfer_penalty,
                     parallel_wait,
                     p.subcube,
                     p.z,
@@ -563,6 +574,7 @@ def simulate(
                     overlap_gain,
                     overlap_bw_pressure,
                     overlap_z_factor,
+                    transfer_penalty,
                 )
                 if best is None or candidate[0] < best[0]:
                     best = candidate
@@ -578,27 +590,31 @@ def simulate(
                 overlap_gain,
                 overlap_bw_pressure,
                 overlap_z_factor,
+                transfer_penalty,
             ) = best
             (
                 _,
                 end,
                 start,
                 duration,
-                switch_penalty,
+                _combined_penalty,
                 _,
                 _,
                 _,
                 _,
             ) = _candidate_key
+            switch_penalty = max(0, _combined_penalty - transfer_penalty)
             sc = placement.subcube
 
             subcube_available[sc] = end
             subcube_last_cube[sc] = placement.physical_cube_id
+            task_to_subcube[task_id] = placement.subcube
             subcube_active_intervals.append((start, end))
 
             bubble = max(0, start - earliest_ready)
             total_compute_cycles += duration
             total_switch_cycles += switch_penalty
+            total_transfer_penalty_cycles += transfer_penalty
             total_bubble += bubble
             parallel_limit_wait_cycles += parallel_wait
             subcube_wait_cycles[sc] += bubble
@@ -621,6 +637,7 @@ def simulate(
                     "start": start,
                     "end": end,
                     "switch_penalty": switch_penalty,
+                    "transfer_penalty": transfer_penalty,
                     "parallel_limit_wait": parallel_wait,
                     "bubble": bubble,
                     "compute_cycles": compute_cycles,
@@ -677,11 +694,13 @@ def simulate(
     metrics = {
         "latency": float(latency),
         "space_utilization": float(mapping.metrics.get("space_utilization", 0.0)),
+        "parameter_density": float(mapping.metrics.get("parameter_density", 0.0)),
         "mapping_rate": float(mapping.metrics.get("mapping_rate", 0.0)),
         "temporal_utilization": float(temporal_util),
         "pipeline_bubble_cycles": float(total_bubble),
         "pipeline_bubble_ratio": float(bubble_ratio),
         "switching_penalty_cycles": float(total_switch_cycles),
+        "inter_subcube_transfer_penalty_cycles": float(total_transfer_penalty_cycles),
         "parallel_limit_wait_cycles": float(parallel_limit_wait_cycles),
         "conflict_score": float(mapping.metrics.get("conflict_score", 0.0)),
         "memory_utilization": float(memory_utilization),
@@ -721,6 +740,7 @@ def simulate(
         "n_inferences": int(activation_trace.get("n_inferences", 1)),
         "switching_penalty": cube_cfg.switching_penalty,
         "z_access_penalty": cube_cfg.z_access_penalty,
+        "inter_subcube_transfer_penalty": cube_cfg.inter_subcube_transfer_penalty,
         "subcube_count": cube_cfg.num_subcubes,
         "max_parallel_subcubes": cube_cfg.max_parallel_subcubes,
         "constraints": {

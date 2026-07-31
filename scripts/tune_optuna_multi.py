@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
+import multiprocessing
 from pathlib import Path
 import sys
 from typing import Any, Dict, List, Tuple
@@ -11,6 +12,8 @@ import optuna
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+WORKSPACE_ROOT = PROJECT_ROOT.parents[1]
+EXPECTED_VENV_PYTHON = WORKSPACE_ROOT / "saidao2" / ".venv" / "Scripts" / "python.exe"
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -18,6 +21,22 @@ from config.cube_config import DEFAULT_CUBE_CONFIG, CubeConfig
 from config.moe_config import DEFAULT_MOE_CONFIG
 from main import run_pipeline
 from src.utils import ensure_dir, load_json, save_json
+
+
+def _normalized_path(path: str | Path) -> str:
+    return str(Path(path).resolve()).casefold()
+
+
+def _ensure_project_venv_python() -> None:
+    expected = EXPECTED_VENV_PYTHON.resolve()
+    actual = Path(sys.executable).resolve()
+    if _normalized_path(actual) != _normalized_path(expected):
+        raise RuntimeError(
+            "Project venv Python required. "
+            f"Expected {expected}, got {actual}. "
+            "Run with: & $PY scripts/tune_optuna_multi.py ..."
+        )
+    multiprocessing.set_executable(str(expected))
 
 
 def _parse_path_list(raw: str) -> List[Path]:
@@ -232,6 +251,7 @@ def _objective_factory(
     robust_worst_weight: float,
     tail_p95_weight: float,
     tail_p99_weight: float,
+    enable_shared_operator_replication: bool = True,
 ):
     def objective(trial: optuna.Trial) -> Tuple[float, float, float]:
         dispatch_policy = trial.suggest_categorical("dispatch_policy", ["fifo", "criticality"])
@@ -251,6 +271,7 @@ def _objective_factory(
         )
         moe_cfg = replace(
             DEFAULT_MOE_CONFIG,
+            enable_shared_operator_replication=bool(enable_shared_operator_replication),
             local_search_restarts=trial.suggest_int("local_search_restarts", 3, 8),
             local_search_max_iters=trial.suggest_int("local_search_max_iters", 20, 70),
             parallel_trials=trial.suggest_int("parallel_trials", 4, 14),
@@ -382,6 +403,7 @@ def run_multi_tuning(
     cube_cfg: CubeConfig,
     capacity_max_ratio: float,
     strict_capacity: bool,
+    enable_shared_operator_replication: bool = True,
 ) -> Dict[str, Any]:
     ensure_dir(output_root)
     trace_weights = _resolve_trace_weights(trace_paths, trace_weight_map, auto_trace_weight)
@@ -398,6 +420,7 @@ def run_multi_tuning(
         robust_worst_weight=robust_worst_weight,
         tail_p95_weight=tail_p95_weight,
         tail_p99_weight=tail_p99_weight,
+        enable_shared_operator_replication=bool(enable_shared_operator_replication),
     )
 
     def _create_study(tag: str, seed_offset: int) -> optuna.Study:
@@ -458,6 +481,7 @@ def run_multi_tuning(
                 "worst_latency": tr.user_attrs.get("worst_latency"),
                 "mean_p95_latency": tr.user_attrs.get("mean_p95_latency"),
                 "mean_p99_latency": tr.user_attrs.get("mean_p99_latency"),
+                "enable_shared_operator_replication": bool(enable_shared_operator_replication),
             }
             row.update(tr.params)
             rows.append(row)
@@ -475,6 +499,8 @@ def run_multi_tuning(
     ]
     for tr in complete_trials:
         vals = list(tr.values)
+        params = dict(tr.params)
+        params["enable_shared_operator_replication"] = bool(enable_shared_operator_replication)
         pareto_rows.append(
             {
                 "trial": tr.number,
@@ -486,7 +512,7 @@ def run_multi_tuning(
                 "worst_latency": tr.user_attrs.get("worst_latency"),
                 "mean_p95_latency": tr.user_attrs.get("mean_p95_latency"),
                 "mean_p99_latency": tr.user_attrs.get("mean_p99_latency"),
-                "params": tr.params,
+                "params": params,
             }
         )
 
@@ -553,6 +579,7 @@ def run_multi_tuning(
             "holdout_eval": holdout_eval,
             "csv": str(csv_path),
             "overlap_transfer_compute": bool(overlap_transfer_compute),
+            "enable_shared_operator_replication": bool(enable_shared_operator_replication),
             "n_jobs": int(max(1, n_jobs)),
             "seed": int(seed),
             "cube": cube_cfg.to_dict(),
@@ -569,6 +596,7 @@ def run_multi_tuning(
 
 
 def main() -> None:
+    _ensure_project_venv_python()
     parser = argparse.ArgumentParser(description="Robust multi-objective Optuna tuning for latency/conflict/space")
     parser.add_argument("--model", type=Path, default=Path("data/sample_model.json"))
     parser.add_argument("--trace", type=Path, default=Path("data/sample_trace.json"))
@@ -583,6 +611,11 @@ def main() -> None:
     parser.add_argument("--capacity-max-ratio", type=float, default=2.0)
     parser.add_argument("--strict-capacity", action="store_true")
     parser.add_argument("--overlap-transfer-compute", action="store_true")
+    parser.add_argument(
+        "--disable-shared-replication",
+        action="store_true",
+        help="Disable shared/non-expert operator replication during tuning and holdout replay",
+    )
     parser.add_argument("--enable-two-stage-tuning", action="store_true", help="Enable two-stage tuning with stage2 warm-start")
     parser.add_argument("--stage1-ratio", type=float, default=0.45, help="Stage1 trial ratio in two-stage tuning")
     parser.add_argument("--stage2-warmstart-topk", type=int, default=3, help="Warm-start top-k trials from stage1")
@@ -639,6 +672,7 @@ def main() -> None:
         cube_cfg=cube_cfg,
         capacity_max_ratio=max(1e-9, float(args.capacity_max_ratio)),
         strict_capacity=bool(args.strict_capacity),
+        enable_shared_operator_replication=not bool(args.disable_shared_replication),
     )
     print("==== Multi-objective Tuning Done ====")
     print(f"trials: {result['n_trials']}, pareto: {result['pareto_size']}")

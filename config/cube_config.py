@@ -13,6 +13,7 @@ class CubeConfig:
     max_parallel_subcubes: int = 9
     switching_penalty: int = 3
     z_access_penalty: int = 1
+    inter_subcube_transfer_penalty: int = 0
 
     def validate(self) -> None:
         if not (2 <= self.n <= 4):
@@ -25,6 +26,8 @@ class CubeConfig:
             raise ValueError("D must be positive")
         if self.max_parallel_subcubes <= 0:
             raise ValueError("max_parallel_subcubes must be positive")
+        if self.inter_subcube_transfer_penalty < 0:
+            raise ValueError("inter_subcube_transfer_penalty must be >= 0")
 
     @property
     def num_subcubes(self) -> int:

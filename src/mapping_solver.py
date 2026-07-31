@@ -1553,6 +1553,8 @@ def solve_mapping(
     )
     compression_ratio = compressed_physical_bytes / max(uncompressed_physical_bytes, 1.0)
     space_util = placed_volume / max(float(cube_cfg.total_volume), 1.0)
+    mapped_param_count = float(sum(parsed_model.weight_cubes[p.logical_cube_id].elements for p in placements))
+    parameter_density = mapped_param_count / max(placed_volume, 1.0)
     mapping_rate = (len(cubes) - len(unplaced)) / max(len(cubes), 1)
     conflict_score = _estimate_conflict_score(placements, co_matrix)
     physical_ids = [p.physical_cube_id for p in placements]
@@ -1565,6 +1567,7 @@ def solve_mapping(
         unplaced_cubes=sorted(set(unplaced)),
         metrics={
             "space_utilization": space_util,
+            "parameter_density": parameter_density,
             "mapping_rate": mapping_rate,
             "placed_volume": placed_volume,
             "logical_volume": logical_volume,

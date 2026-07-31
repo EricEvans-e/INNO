@@ -2,24 +2,14 @@
 \subsection{策略设计}
 优化流程如图~\ref{fig:loop} 所示。其核心不是仅提高单个专家的并发数，而是在轨迹统计下权衡互斥性、热点副本、物理碎片与调度等待。共现低的专家可共享资源候选，频率高且压力大的专家得到更多副本，热点组优先分配到不同 Sub-Cube，并将常用权重偏向低 z 层。该设计的收益应由具体轨迹验证；它不是对任意模型与任意硬件的普适承诺。
 
+对候选放置 $p$，映射器使用由剩余容量、形状碎片、组间共现、历史负载和 z 层代价组成的排序分数。该分数只负责筛选可行候选，最终评价仍由完整静态调度的 makespan 决定。换言之，空间装箱阶段不把局部几何分数误认为端到端性能；调度器会重新暴露由于依赖屏障、切换和带宽竞争造成的等待，搜索过程再用这些结果更新局部放置。
+
+本文的创新点集中在三个可复核的耦合关系上：轨迹中的共现统计决定哪些逻辑权重可以作为互斥候选；频率、转移和争用统计决定有限复制预算的优先级；静态调度反馈决定一个看似紧凑的放置是否实际产生更短的完成时间。三者都落在 JSON 元数据和验证器可检查的字段中，便于在官方轨迹替换后重新验证，而不依赖不可观测的运行时迁移。
+
+\setcounter{figure}{2}
 \begin{figure}[t]
 \centering
-\begin{tikzpicture}[
-  node distance=4mm,
-  box/.style={draw,rounded corners=2pt,minimum width=31mm,minimum height=7mm,align=center,fill=green!7},
-  arrow/.style={-{Stealth[length=1.6mm]},thick}
-]
-\node[box] (a) {轨迹统计：共现、频率、转移};
-\node[box,below=of a] (b) {互斥分组与热点选择};
-\node[box,below=of b] (c) {精确分配、局部搜索与退火};
-\node[box,below=of c] (d) {副本放置与容量检查};
-\node[box,below=of d] (e) {静态调度与约束验证};
-\draw[arrow] (a)--(b);
-\draw[arrow] (b)--(c);
-\draw[arrow] (c)--(d);
-\draw[arrow] (d)--(e);
-\draw[arrow] (e.east) to[out=0,in=0,looseness=1.2] node[right,font=\scriptsize,align=left]{指标反馈\\与参数调优} (a.east);
-\end{tikzpicture}
+\includegraphics[width=\columnwidth]{figures/figure3.png}
 \caption{轨迹感知映射与验证闭环。}
 \label{fig:loop}
 \end{figure}

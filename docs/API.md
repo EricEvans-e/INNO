@@ -3,15 +3,31 @@
 ## 1. `src/model_parser.py`
 
 ### `parse_model(model_path: Path, cube_config: CubeConfig) -> ParsedModel`
-- 功能：解析JSON/ONNX模型，构建DAG，切分Weight-Cube。
+- 功能：解析JSON模型，构建DAG，切分Weight-Cube；ONNX 路径为轻量适配/元数据级读取，当前覆盖 initializer-backed `MatMul/Gemm` 与常见 arithmetic elementwise 等基础形态，不声明完整 ONNX 执行语义覆盖。
 - 输出：`ParsedModel`，包含算子字典、拓扑序、依赖图、Weight-Cube集合。
+- 元数据保留：解析器会保留 `bias_shape`、`inputs`、`outputs`、`onnx_op_type`、`initializer_name` 等字段，便于后续导出 internal IR、追溯 ONNX initializer，或适配真实模型来源。
 
 ### `parse_activation_trace(trace_path: Path) -> Dict[str, Any]`
 - 功能：解析MoE激活轨迹，输出共现矩阵和频率统计。
+- 兼容格式：顶层记录列表可使用 `traces`、`records`、`activations`；单条记录中的专家字段可使用 `active_experts`、`expert_ids`、`experts`、`topk_experts`。解析器会归一化这些字段以构建专家频率和共现统计。
 
 ---
 
-## 2. `src/mapping_solver.py`
+## 2. `src/internal_ir.py`
+
+### `build_internal_ir(parsed_model, activation_trace, cube_cfg, mapping=None, simulation=None) -> Dict[str, Any]`
+- 功能：构建轻量级内部 IR，用于答辩、复核和调试时展示从模型解析到硬件映射、静态调度的完整链路。
+- 输入：
+  - `parsed_model`: `parse_model` 生成的 `ParsedModel`。
+  - `activation_trace`: `parse_activation_trace` 生成的 trace 统计与记录。
+  - `cube_cfg`: 当前 `CubeConfig`，用于记录 Sub-Cube 网格、容量、带宽和惩罚参数。
+  - `mapping`: 可选 `MappingResult`，传入后写入 mapping rate、space utilization、parameter density、placement/unplaced 计数等摘要。
+  - `simulation`: 可选 `SimulationResult`，传入后写入 latency、schedule task count、constraint validity 等摘要。
+- 输出：可 JSON 序列化的 dict，通常由 CLI 导出为 `internal_ir.json`。该 IR 是项目级轻量中间表示，用于展示链路和关键摘要；完整 placements/schedule 仍以 `*_mapping.json`、`*_simulation.json` 和 `solution.json` 为准。它不是 MLIR Dialect 或 ISA。
+
+---
+
+## 3. `src/mapping_solver.py`
 
 ### `solve_mapping(parsed_model, activation_trace, cube_cfg, moe_cfg, packing_policy, enable_moe_optimization, enable_adaptive_replication) -> MappingResult`
 - 功能：执行空间映射。
@@ -47,7 +63,7 @@
 
 ---
 
-## 3. `src/simulator.py`
+## 4. `src/simulator.py`
 
 ### `simulate(parsed_model, mapping, activation_trace, cube_cfg) -> SimulationResult`
 - 功能：静态时序模拟。
@@ -70,9 +86,11 @@
 - 输出指标：
   - `latency`
   - `space_utilization`
+  - `parameter_density`（映射参数量 / 占用体积）
   - `temporal_utilization`
   - `pipeline_bubble_cycles`
   - `switching_penalty_cycles`
+  - `inter_subcube_transfer_penalty_cycles`（跨 Sub-Cube 数据传输惩罚周期）
   - `memory_utilization`
   - `avg_bandwidth_utilization`
   - `max_bandwidth_utilization`
@@ -82,7 +100,7 @@
 
 ---
 
-## 4. `src/utils.py`
+## 5. `src/utils.py`
 
 ### 数据与统计
 - `load_json` / `save_json`
@@ -98,21 +116,28 @@
 
 ---
 
-## 5. `main.py`
+## 6. `main.py`
 
-### `run_pipeline(model_path, trace_path, output_dir, moe_cfg_override, export_profile) -> Dict[str, Any]`
+### `run_pipeline(..., export_internal_ir=False) -> Dict[str, Any]`
 - 功能：一键执行基线与优化策略，输出对比结果与图表。
+- 关键输入：`model_path`、`trace_path`、`output_dir`、`cube_cfg_override`、`moe_cfg_override`、调度/overlap 参数、严格容量参数和 `export_internal_ir`。
+- `export_internal_ir=True` 时，返回值的 `artifacts.internal_ir` 为 `internal_ir.json` 的绝对路径，`run_manifest.json` 中记录相对 artifact 名称。
 - `run_pipeline` 支持覆盖 cube/moe 配置、overlap 模型、调度策略、resource pressure、严格容量与 seed。
 - 每次新运行会输出 `baseline_solution.json`、`ablation_best_fit_replication_only_solution.json`、`ablation_moe_without_replication_solution.json`、`optimized_solution.json`、最终提交用 `solution.json` 和 `run_manifest.json`。
 
 ### CLI
-```bash
-python main.py --model data/sample_model.json --trace data/sample_trace.json --output outputs --profile
-python main.py --model data/sample_model.json --trace data/sample_trace.json --output outputs --search-trials 12 --parallel-workers 6
-python main.py --model data/sample_model.json --trace data/sample_trace.json --output outputs/smoke --profile --deterministic --search-trials 1 --parallel-workers 1 --local-restarts 1 --local-iters 5 --disable-sa --disable-parallel-search
-python main.py --model data/sample_model.json --trace data/sample_trace.json --output outputs/nonlinear --profile --overlap-transfer-compute --overlap-model-mode nonlinear_bandwidth_aware --resource-pressure-weight 0.2 --dispatch-policy criticality --criticality-weight 0.3
-python main.py --model data/sample_model.json --trace data/sample_trace.json --output outputs/shared_replication_smoke --profile --deterministic --cube-d 2 --strict-capacity --capacity-max-ratio 2.0 --replication-volume-budget-ratio 0.45 --shared-replication-min-volume 16777216 --shared-replication-max-replicas 2
+```powershell
+& $PY main.py --model data/sample_model.json --trace data/sample_trace.json --output outputs --profile
+& $PY main.py --model data/sample_model.json --trace data/sample_trace.json --output outputs --search-trials 12 --parallel-workers 6
+& $PY main.py --model data/sample_model.json --trace data/sample_trace.json --output outputs/smoke --profile --deterministic --search-trials 1 --parallel-workers 1 --local-restarts 1 --local-iters 5 --disable-sa --disable-parallel-search
+& $PY main.py --model data/sample_model.json --trace data/sample_trace.json --output outputs/nonlinear --profile --overlap-transfer-compute --overlap-model-mode nonlinear_bandwidth_aware --resource-pressure-weight 0.2 --dispatch-policy criticality --criticality-weight 0.3
+& $PY main.py --model data/sample_model.json --trace data/sample_trace.json --output outputs/shared_replication_smoke --profile --deterministic --cube-d 2 --strict-capacity --capacity-max-ratio 2.0 --replication-volume-budget-ratio 0.45 --shared-replication-min-volume 16777216 --shared-replication-max-replicas 2
+& $PY main.py --model data/sample_model.json --trace data/sample_trace.json --output outputs/ir_smoke --profile --export-internal-ir
 ```
+
+Internal IR CLI:
+
+- `--export-internal-ir`: 在输出目录写入 `internal_ir.json`，用于展示 `ParsedModel`、activation trace、`CubeConfig`、`MappingResult` 和 `SimulationResult` 的串联关系。该文件适合答辩和 reviewer-facing 材料引用，但不代表 MLIR/ISA 级完整编译器输出。
 
 Shared replication CLI:
 
@@ -122,11 +147,13 @@ Shared replication CLI:
 
 ---
 
-## 6. 自动化脚本
+## 7. 自动化脚本
 
 ### `scripts/tune_optuna.py`
 - 功能：自动化单目标超参搜索，输出 `best_params.json` 与 `tuning_trials.csv`。
 - 支持：多 trace 鲁棒目标、p95/p99 尾延时、holdout 验证、trace 权重、两阶段调参、`--n-jobs` 并行。
+- 关键开关：`--disable-shared-replication` 会在调参和 holdout replay 中关闭 shared/non-expert operator replication，并写入 `best_params.json`。
+- 环境护栏：入口会校验 `sys.executable` 是项目 `.venv` 的 Python，并固定 multiprocessing executable，避免误用系统 Python。
 
 ### `scripts/parallel_benchmark.py`
 - 功能：并行批量评估多组配置，输出 `parallel_benchmark_summary.json` 与 `parallel_benchmark.csv`。
@@ -137,6 +164,8 @@ Shared replication CLI:
 ### `scripts/tune_optuna_multi.py`
 - 功能：自动化多目标 Pareto 搜索，输出 `multiobjective_pareto.json`。
 - 支持：多 trace 鲁棒目标、holdout top-k 评估、trace 权重、两阶段调参、`--n-jobs` 并行。
+- 关键开关：`--disable-shared-replication` 会在 Pareto 参数和 holdout 参数中显式记录 `enable_shared_operator_replication=false`。
+- 环境护栏：入口会校验 `sys.executable` 是项目 `.venv` 的 Python，并固定 multiprocessing executable，避免误用系统 Python。
 
 ### `scripts/short_term_optimize.py`
 - 功能：低成本网格搜索，输出 `short_term_best.json`、`short_term_grid_results.csv`、`short_term_report.md`。

@@ -22,6 +22,12 @@
 \setlength{\parindent}{2em}
 \setlength{\parskip}{0pt}
 \linespread{1.16}\selectfont
+\makeatletter
+\setlength{\@fptop}{0pt}
+\setlength{\@fpbot}{0pt}
+\setlength{\@dblfptop}{0pt}
+\setlength{\@dblfpbot}{0pt}
+\makeatother
 \setlist{nosep,leftmargin=1.5em}
 \titleformat{\section}{\large\bfseries\heiti}{\thesection}{0.6em}{}
 \titleformat{\subsection}{\normalsize\bfseries\heiti}{\thesubsection}{0.5em}{}
@@ -30,7 +36,7 @@
 \pagestyle{fancy}
 \fancyhf{}
 \fancyhead[LE,RO]{\small 3D 异构 CIM 资源调度优化}
-\fancyhead[LO,RE]{\small 2026 INNO CIM 存算一体高校挑战赛}
+\fancyhead[LO,RE]{\small MoE 大模型推理资源调度}
 \fancyfoot[C]{\small\thepage}
 \renewcommand{\headrulewidth}{0.35pt}
 \renewcommand{\footrulewidth}{0pt}

@@ -3,7 +3,7 @@
 ## 1. 引言
 赛题二关注在固定3D异构CIM资源空间中，将大模型计算流（尤其是MoE）进行静态映射与时序调度优化。难点不是单纯容量放置，而是“并行性-互斥性-切换开销-依赖屏障”的系统级耦合优化。
 
-本实现面向冲一等奖目标，强调：
+本实现面向赛题评价指标，强调：
 - 完整部署链路可运行、可复现；
 - MoE结构特性显式建模；
 - 指标导向的可量化优化与消融验证。
@@ -48,12 +48,26 @@
 - 中间结果：`*_mapping.json`, `*_simulation.json`
 - 输出：指标对比与可视化图
 
+### 3.3 与通关指南工具链视角的对应关系
+
+通关指南从完整 CIM 编译工具链角度讨论模型导入、中间表示、硬件映射、静态调度和工程验证。本项目的定位更窄：面向赛道二 / 赛题二，聚焦 MoE-style inference 的专家权重部署、3D Weight-Cube 映射和静态调度优化，而不是赛题一式 MLIR Dialect、ISA 生成或全栈编译器实现。
+
+在本实现中，`ParsedModel` 承担模型导入后的结构化模型表示，包含算子、依赖 DAG、Weight-Cube 切分结果以及保留的 ONNX/JSON 元数据；轻量级 `src/internal_ir.py` 可通过 `build_internal_ir(parsed_model, activation_trace, cube_cfg, mapping, simulation)` 导出 `internal_ir.json`，用于串联模型、trace、硬件配置、映射结果与调度结果。映射阶段输出 `MappingResult` 和 `*_mapping.json`，调度仿真阶段输出 `SimulationResult` 和 `*_simulation.json`，最终 `solution.json` 作为提交/复核风格的空间映射与 schedule 汇总。
+
+因此，本项目与通关指南的对应关系是“工具链关键环节的赛题二调度化实现”：模型导入有 `parse_model`，中间表示有轻量 internal IR，硬件映射有 `MappingResult`，静态调度有 `SimulationResult`，工程验证有 `scripts/validate_submission.py`、`run_manifest.json` 和指标/图表产物。更详细的交叉说明见 `docs/GUIDE_ALIGNMENT.md`。
+
 ## 4. 详细设计与实现
 
 ### 4.1 模型解析
-- 支持JSON模型（并兼容ONNX读取）
+- 支持JSON模型；ONNX 为轻量适配/元数据级读取，当前覆盖 initializer-backed `MatMul/Gemm`、常见 arithmetic elementwise 等基础形态，不声明完整 ONNX 执行语义覆盖
 - 自动构建DAG依赖图（networkx）
 - 对线性/专家权重做二维切分，生成Weight-Cube列表
+
+#### 4.1.1 权重切分合规性说明
+
+赛题约束"仅允许水平或垂直切分"。本实现的 `_split_matrix` 函数（`model_parser.py`）采用网格切分策略：对给定权重矩阵 $W \in \mathbb{R}^{m \times n}$，先按行方向以 `max_h` 为步长做水平切分，再对每个水平条带按列方向以 `max_w` 为步长做垂直切分，得到一系列轴对齐子矩形。
+
+这一策略可解释为连续水平/垂直轴对齐切分形成的规则网格分块。每次切分操作本身是水平或垂直的，最终子块均为轴对齐矩形，不存在对角线或旋转切割。赛题约束旨在排除非轴对齐的任意切割；在该约束理解下，本实现的网格切分符合“仅使用水平或垂直切分”的要求。
 
 ### 4.2 编译映射
 #### 基线算法
@@ -84,11 +98,42 @@
 - `*_solution.json`：baseline、ablation、optimized 各自的 solution 快照
 - `run_manifest.json`：输入文件 hash、配置、运行环境与结果摘要
 
+### 4.5 硬件执行单元抽象
+
+本项目没有将通关指南中的 DMA、Elementwise、AnaArray、DigArray、FFT 建模为指令级执行单元，而是根据赛题二的 MoE 专家权重调度目标建立调度层抽象。
+
+- DMA / 数据搬运：由 transfer cycles、带宽参数、transfer/compute overlap、`CubeConfig.inter_subcube_transfer_penalty` 和 `inter_subcube_transfer_penalty_cycles` 表达，重点刻画跨 Sub-Cube 依赖带来的数据移动代价。
+- AnaArray / CIM array：由 `linear`、`moe_expert`、`matmul`、`gemm` 等 Weight-Cube 承载，表示主要矩阵权重在 CIM 阵列上的空间部署与执行占用。
+- Elementwise / digital light tasks：由 `elementwise`、`router`、`merge` 等轻量任务表示，用于保留 MoE 路由、逐元素操作、专家输出合并等依赖关系和少量调度开销。
+- DigArray：当前粒度下并入轻量数字任务或非专家算子的 compute cycles，不单独输出硬件指令。
+- FFT：未建模，因为 FFT 不是 MoE expert weight deployment and scheduling 的核心算子，也不是当前评测链路的主要瓶颈。
+
+blockwise quantization、sparsity 和 replication 在本报告中均作为容量/性能调度模型元数据使用：它们影响 Weight-Cube 体积、有效参数量、副本预算和延迟估计，但不构成完整硬件数值精度校准或真实芯片 ISA 级模拟的声明。
+
 ## 5. 优化论证与分析
 - 互斥分组降低高共现专家同核冲突概率
 - 热点专家低层部署减少访问附加代价
 - 复制策略缓解热点资源争用，降低切换与排队延迟
 - Best Fit在相同容量下提升有效装载率，降低碎片
+
+### 5.1 算法复杂度分析
+
+| 算法阶段 | 复杂度 | 说明 |
+|---------|--------|------|
+| ShelfPacker (2D bin-packing) | O(C × R) | C=cube数, R=shelf行数, R≪H |
+| MoE互斥分组 | O(T × E² × G) | T=多起点试验数, E=专家数, G=分组数 |
+| 热子图精确分配 | O(N^k) (branch-and-bound剪枝) | k=top_k, N=子立方体数, 实际远小于最坏情况 |
+| 局部搜索 (swap/2-opt) | O(I × (G×N + G²)) | I=迭代次数, G=可移动分组数 |
+| 模拟退火 | O(S × G²) | S=SA步数, 每步评估O(G²)冲突分数 |
+| 调度器 | O(T × (P + log T)) | T=任务数, P=候选placement数 |
+
+各阶段说明：
+- **ShelfPacker**：对每个待放置cube，遍历shelf所有行寻找最优放置位置，行数R受子立方体高度和最小cube尺寸约束，实际远小于H。
+- **MoE互斥分组**：多起点贪心，每轮对每个专家尝试放入已有分组或新建分组，需检查组内所有成员的共现关系。
+- **热子图精确分配**：DFS枚举top-k个热点分组到子立方体的映射，branch-and-bound利用部分冲突下界剪枝，k=6、N=9时最坏情况9^6=531,441，实际剪枝后远小于此。
+- **局部搜索**：每轮尝试所有单组迁移(G×N种)和所有组对交换(G²种)，迭代I轮收敛。
+- **模拟退火**：每步随机扰动分组映射并评估冲突分数，S步终止。
+- **调度器**：对每个任务评估所有候选placement(P个)，使用优先队列管理就绪任务。
 
 ## 6. 实验结果
 详见 `EXPERIMENT.md`，含消融、指标表与可视化结果。

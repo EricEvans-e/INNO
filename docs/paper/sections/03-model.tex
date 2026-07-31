@@ -2,7 +2,37 @@
 \subsection{3D 资源模型}
 整个 CIM 资源空间由 $N^2$ 个相互独立的 Sub-Cube 构成。每个 Sub-Cube 的尺寸为 $D\times H\times W$，其中 $N\in[2,4]$，$H,W\in[4096,16384]$，而 $D$ 由部署者设定。单个 Sub-Cube 的任意时刻仅允许激活一个 Weight-Cube，不同 Sub-Cube 可并行执行，但总并行数受配置上限约束。配置在一次模型部署期间保持静态，符合权重驻留约束。
 
+% The supplied artwork contains its final figure number; keep LaTeX numbering aligned.
+\setcounter{figure}{1}
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/figure2.png}
+\caption{3D 异构 CIM 资源空间与 Weight-Cube 放置。}
+\label{fig:resource-space}
+\end{figure}
+
 给定二维权重矩阵 $W\in\mathbb{R}^{m\times n}$，解析器先以 $H$ 为上界作水平切分，再以 $W$ 为上界作垂直切分。第 $k$ 个 Weight-Cube 表示为 $C_k=(h_k,w_k,d_k)$，本实现采用 $d_k=1$ 的分层放置。该网格切分可由连续的水平与垂直切分构成，不引入对角或旋转边界。
+
+\subsection{形式化问题}
+令 $\mathcal{C}$ 为逻辑 Weight-Cube 集合，$\mathcal{P}$ 为物理放置副本集合。每个物理副本 $p\in\mathcal{P}$ 由映射
+\[
+\pi(p)=(n_p,x_p,y_p,z_p,h_p,w_p,d_p)
+\]
+确定，其中 $n_p$ 是 Sub-Cube 编号，$(x_p,y_p,z_p)$ 是局部坐标。合法映射需要满足三类条件：第一，$0\le x_p+h_p\le H$、$0\le y_p+w_p\le W$ 和 $0\le z_p+d_p\le D$；第二，同一 Sub-Cube 内任意两个副本的三维包围盒不得重叠；第三，全部物理副本体积不超过逻辑需求体积的两倍，即
+\begin{equation}
+\rho_c=\frac{\sum_{p\in\mathcal{P}}\operatorname{vol}(p)}{\sum_{c\in\mathcal{C}}\operatorname{vol}(c)}\le 2.
+\end{equation}
+复制改变 $\mathcal{P}$ 而不改变逻辑算子图，因而必须同时受到容量和调度收益约束。
+
+对展开后的任务图 $\mathcal{Q}$，任务 $q$ 的开始、结束时间分别为 $s_q$ 和 $e_q=s_q+\delta_q$。若 $q'$ 是 $q$ 的前驱，则
+\begin{equation}
+s_q\ge e_{q'}+\tau(q',q),
+\end{equation}
+其中 $\tau$ 表示可选的跨 Sub-Cube 传输代价；正式主方案将其设为 0。若两个任务使用同一 Sub-Cube，则其时间区间必须互斥。优化的主目标是最小化 makespan
+\begin{equation}
+L=\max_{q\in\mathcal{Q}}e_q,
+\end{equation}
+在满足 $\rho_c\le2$、映射率 $R_m=1$ 和调度合法性的前提下，再比较空间利用率、时间利用率和冲突分数。这一优先级与赛题对端到端延迟、空间利用和可部署性的排序一致。
 
 \subsection{轨迹统计与优化目标}
 对包含 $T$ 条推理记录的轨迹，令 $a_t$ 为第 $t$ 次推理激活的专家集合。专家 $i,j$ 的共现矩阵定义为
@@ -15,5 +45,11 @@ U_s=\frac{\sum_{p\in\mathcal{P}}\mathrm{vol}(p)}{N^2DHW},
 \end{equation}
 $\mathcal{P}$ 为成功放置的物理副本集合。复制必须同时满足几何无重叠与赛题容量比约束。
 
+为使不同实验的指标口径一致，本文将映射率定义为已成功放置的逻辑 Weight-Cube 数与逻辑 Weight-Cube 总数之比；时间利用率定义为所有 Sub-Cube 忙碌周期之和除以资源并行度与 makespan 的乘积；冲突分数则由轨迹共现关系映射到同一物理资源后的加权冲突次数得到。空间利用率只描述物理体积占全局空间的比例，不能单独代表性能。因而结果章节同时报告几何、时间、冲突和合法性指标，避免用单一利用率替代端到端延迟。
+
+在当前实现中，逻辑 Weight-Cube 与物理副本分开记录。逻辑对象保存算子、专家编号和原始形状；物理对象额外保存副本编号、Sub-Cube 编号、三维坐标、压缩比和放置策略。该区分使得复制不会改变任务图的逻辑依赖，也使容量比可以直接由物理对象集合计算。对于官方轨迹，只需替换轨迹输入并重新计算 $M_{ij}$、$f_i$ 和转移统计，不需要修改本节的约束定义。
+
 \subsection{调度约束}
 对任务 $q$，其开始时间 $s_q$ 至少不小于所有前驱任务的完成时间；若两个任务使用同一 Sub-Cube，则其执行区间不得重叠。不同 Weight-Cube 在同一 Sub-Cube 上连续执行会产生切换惩罚，较深 z 层引入额外访问代价。跨 Sub-Cube 依赖可按跨核传输惩罚参数计入传输开销；当前正式实验的该参数为 0，因此本文不将跨核传输延迟解释为已完成芯片标定。该模拟器定位为调度层的性能评估工具，与加速器设计空间评估的通用思路一致\cite{parashar2019timeloop}。
+
+对同一 Sub-Cube 上相邻执行的任务对 $(q_i,q_j)$，模拟器可加入切换开销 $\sigma(q_i,q_j)$；对放置在 z 层 $z$ 的任务加入访问项 $\zeta(z)$。因此单条依赖路径上的估计完成时间可抽象为计算、切换、z 层和传输项之和。本文不把这些项视为芯片工艺定值，而把它们作为可配置的设计空间参数，以便在获得芯片测量或官方参数后重新回放。

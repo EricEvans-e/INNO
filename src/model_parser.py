@@ -77,6 +77,14 @@ def _build_dependency_graph(operators: List[Dict[str, Any]]) -> nx.DiGraph:
 
 
 def _build_operator_record(op: Dict[str, Any]) -> Dict[str, Any]:
+    promoted_metadata_keys = {"bias_shape", "inputs", "outputs", "onnx_op_type", "initializer_name"}
+    structural_keys = {"id", "type", "shape", "deps", "expert_id", "parallel_group", "metadata"}
+    attrs_excluded_keys = structural_keys | promoted_metadata_keys
+    metadata = dict(op.get("metadata", {}))
+    for key in promoted_metadata_keys:
+        if key in op:
+            metadata[key] = op[key]
+
     return {
         "id": op["id"],
         "type": op["type"],
@@ -85,8 +93,46 @@ def _build_operator_record(op: Dict[str, Any]) -> Dict[str, Any]:
         "expert_id": op.get("expert_id"),
         "parallel_group": op.get("parallel_group"),
         "weight_cubes": [],
-        "attrs": {k: v for k, v in op.items() if k not in {"id", "type", "shape", "deps", "expert_id", "parallel_group"}},
+        "metadata": metadata,
+        "attrs": {k: v for k, v in op.items() if k not in attrs_excluded_keys},
     }
+
+
+def _normalize_trace_rows(trace_json: Dict[str, Any]) -> Tuple[List[List[int]], Dict[str, Any]]:
+    row_expert_fields = ("active_experts", "expert_ids", "experts", "topk_experts")
+
+    if "traces" in trace_json:
+        source_field = "traces"
+        rows = trace_json["traces"]
+        traces = [[int(expert_id) for expert_id in row] for row in rows]
+    elif "records" in trace_json:
+        source_field = "records"
+        traces = _normalize_record_trace_rows(trace_json[source_field], source_field, row_expert_fields)
+    elif "activations" in trace_json:
+        source_field = "activations"
+        traces = _normalize_record_trace_rows(trace_json[source_field], source_field, row_expert_fields)
+    else:
+        raise ValueError("Activation trace must contain 'traces', 'records', or 'activations'")
+
+    return traces, {"source_field": source_field}
+
+
+def _normalize_record_trace_rows(
+    records: List[Dict[str, Any]],
+    source_field: str,
+    row_expert_fields: Tuple[str, ...],
+) -> List[List[int]]:
+    traces: List[List[int]] = []
+    for record in records:
+        expert_ids = None
+        for expert_field in row_expert_fields:
+            if expert_field in record:
+                expert_ids = record[expert_field]
+                break
+        if expert_ids is None:
+            raise ValueError(f"Activation trace '{source_field}' record lacks expert ids: {record}")
+        traces.append([int(expert_id) for expert_id in expert_ids])
+    return traces
 
 
 def parse_model(model_path: Path, cube_config: CubeConfig) -> ParsedModel:
@@ -152,7 +198,7 @@ def parse_model(model_path: Path, cube_config: CubeConfig) -> ParsedModel:
 def parse_activation_trace(trace_path: Path) -> Dict[str, Any]:
     trace_json = load_json(trace_path)
     num_experts = int(trace_json["num_experts"])
-    traces = trace_json.get("traces", [])
+    traces, trace_format = _normalize_trace_rows(trace_json)
 
     matrix = build_cooccurrence_matrix(traces, num_experts)
     transition_matrix = build_transition_matrix(traces, num_experts)
@@ -166,6 +212,7 @@ def parse_activation_trace(trace_path: Path) -> Dict[str, Any]:
         "shared_experts": list(trace_json.get("shared_experts", [])),
         "n_inferences": int(trace_json.get("n_inferences", len(traces))),
         "traces": traces,
+        "trace_format": trace_format,
         "cooccurrence_matrix": matrix,
         "transition_matrix": transition_matrix,
         "expert_frequency": freq,
@@ -192,10 +239,12 @@ def _parse_onnx(model_path: Path) -> Dict[str, Any]:
         deps = [produced_by[x] for x in node.input if x in produced_by]
 
         shape = None
+        matched_initializer_name = None
         for inp in node.input:
             if inp in initializer_shapes and len(initializer_shapes[inp]) >= 2:
                 dims = initializer_shapes[inp]
                 shape = [int(dims[-2]), int(dims[-1])]
+                matched_initializer_name = inp
                 break
 
         mapped_type = "elementwise"
@@ -210,6 +259,10 @@ def _parse_onnx(model_path: Path) -> Dict[str, Any]:
                 "type": mapped_type,
                 "shape": shape,
                 "deps": deps,
+                "inputs": list(node.input),
+                "outputs": list(node.output),
+                "onnx_op_type": node.op_type,
+                "initializer_name": matched_initializer_name,
             }
         )
 

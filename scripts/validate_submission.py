@@ -67,13 +67,14 @@ def _check_capacity(
     return capacity
 
 
-def _check_mapping(solution: Dict[str, Any], errors: List[str]) -> None:
+def _check_mapping(solution: Dict[str, Any], errors: List[str]) -> Dict[str, Dict[str, Any]]:
     hw = solution.get("hardware", {})
     h = int(hw.get("subcube_size", [0, 0])[0])
     w = int(hw.get("subcube_size", [0, 0])[1])
     d = int(hw.get("D", 0))
     num_subcubes = int(hw.get("num_subcubes", 0))
     placed_by_subcube: Dict[int, List[Tuple[int, int, int, int, int, int, str]]] = {}
+    placement_by_physical_id: Dict[str, Dict[str, Any]] = {}
 
     for idx, cube in enumerate(_get_weight_cubes(solution)):
         coords = cube.get("coords", [])
@@ -85,6 +86,9 @@ def _check_mapping(solution: Dict[str, Any], errors: List[str]) -> None:
         ch, cw, cd = [int(v) for v in shape]
         sc = int(cube.get("subcube", -1))
         cid = str(cube.get("physical_cube_id", cube.get("id", idx)))
+        if cid in placement_by_physical_id:
+            errors.append(f"duplicate physical_cube_id in mapping: {cid}")
+        placement_by_physical_id[cid] = cube
 
         if sc < 0 or sc >= num_subcubes:
             errors.append(f"{cid}: subcube {sc} out of range [0,{num_subcubes})")
@@ -112,20 +116,46 @@ def _check_mapping(solution: Dict[str, Any], errors: List[str]) -> None:
         errors.append(f"unplaced cubes present: {spatial.get('unplaced_cubes')}")
     if float(spatial.get("mapping_rate", solution.get("metrics", {}).get("mapping_rate", 0.0))) < 1.0:
         errors.append("mapping_rate is below 1.0")
+    return placement_by_physical_id
 
 
-def _check_schedule(solution: Dict[str, Any], errors: List[str]) -> None:
+def _check_schedule(
+    solution: Dict[str, Any],
+    placement_by_physical_id: Dict[str, Dict[str, Any]],
+    errors: List[str],
+) -> None:
     by_subcube: Dict[int, List[Tuple[int, int, str]]] = {}
+    seen_task_ids: set[str] = set()
     for idx, rec in enumerate(_get_schedule(solution)):
+        task_id = str(rec.get("task_id", ""))
+        if not task_id:
+            errors.append(f"schedule record {idx} missing task_id")
+            task_id = str(idx)
+        if task_id in seen_task_ids:
+            errors.append(f"duplicate schedule task_id: {task_id}")
+        seen_task_ids.add(task_id)
+
         sc = int(rec.get("subcube", -1))
+        physical_cube_id = rec.get("physical_cube_id")
+        if physical_cube_id is not None:
+            pid = str(physical_cube_id)
+            placement = placement_by_physical_id.get(pid)
+            if placement is None:
+                errors.append(f"schedule task {task_id} references unknown physical_cube_id: {pid}")
+            else:
+                mapped_sc = int(placement.get("subcube", -1))
+                if sc != mapped_sc:
+                    errors.append(
+                        f"schedule task {task_id} subcube {sc} does not match placement {pid} subcube {mapped_sc}"
+                    )
         if sc < 0:
             continue
         start = int(rec.get("start_cycle", rec.get("start", 0)))
         end = int(rec.get("end_cycle", rec.get("end", start)))
-        if end < start:
+        if end <= start:
             errors.append(f"schedule record {idx} has end before start")
             continue
-        by_subcube.setdefault(sc, []).append((start, end, str(rec.get("task_id", idx))))
+        by_subcube.setdefault(sc, []).append((start, end, task_id))
 
     for sc, items in by_subcube.items():
         items.sort(key=lambda x: (x[0], x[1]))
@@ -162,8 +192,8 @@ def validate_output_dir(
 
     if solution:
         _check_solution_shape(solution, errors)
-        _check_mapping(solution, errors)
-        _check_schedule(solution, errors)
+        placement_by_physical_id = _check_mapping(solution, errors)
+        _check_schedule(solution, placement_by_physical_id, errors)
 
     capacity = _check_capacity(output_dir, strict_capacity, capacity_max_ratio, errors, warnings)
     report = {

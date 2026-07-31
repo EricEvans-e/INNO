@@ -1,31 +1,39 @@
 \section{系统结构与接口设计}
 图~\ref{fig:architecture} 展示了系统的数据流。解析器输出算子、依赖 DAG 与 Weight-Cube；轨迹模块输出共现、频率、burstiness 和转移影响；映射器生成物理放置及副本元数据；模拟器生成静态 schedule 和性能指标；验证器最终检查空间边界、重叠、调度互斥、依赖与映射率。各阶段均以 JSON 产物固化，因而能够从最终 \texttt{solution.json} 回溯到输入哈希和配置。
 
+\setcounter{figure}{0}
 \begin{figure*}[t]
 \centering
-\begin{tikzpicture}[
-  node distance=8mm and 10mm,
-  box/.style={draw,rounded corners=2pt,minimum width=27mm,minimum height=12mm,align=center,fill=blue!5},
-  resultbox/.style={draw,rounded corners=2pt,minimum width=27mm,minimum height=12mm,align=center,fill=orange!10},
-  arrow/.style={-{Stealth[length=2mm]},thick}
-]
-\node[box] (model) {模型输入\\JSON / ONNX};
-\node[box,right=of model] (parser) {模型解析与\\Weight-Cube 切分};
-\node[box,right=of parser] (mapping) {共现感知映射\\分组与副本};
-\node[box,right=of mapping] (sim) {静态调度\\性能模拟};
-\node[resultbox,right=of sim] (solution) {\texttt{solution.json}\\映射、调度与指标};
-\node[box,below=of parser] (trace) {激活轨迹\\共现/频率/转移};
-\node[resultbox,below=of sim] (validator) {提交验证器\\边界、互斥、依赖};
-\draw[arrow] (model)--(parser);
-\draw[arrow] (parser)--(mapping);
-\draw[arrow] (mapping)--(sim);
-\draw[arrow] (sim)--(solution);
-\draw[arrow] (trace)--(mapping);
-\draw[arrow] (solution)--(validator);
-\draw[arrow] (mapping)|-(validator);
-\end{tikzpicture}
+\includegraphics[width=\textwidth]{figures/figure1.png}
 \caption{项目端到端部署与验证流程。}
 \label{fig:architecture}
 \end{figure*}
 
-输入模型采用算子级元数据表示，支持线性、MoE 专家、MatMul/Gemm 与轻量非线性任务。ONNX 路径是 initializer-backed 结构适配，不宣称覆盖完整 ONNX 执行语义。激活轨迹适配器接受顶层 \texttt{traces}、\texttt{records} 或 \texttt{activations}，并统一单条记录的 \texttt{active\_experts}、\texttt{expert\_ids}、\texttt{experts} 与 \texttt{topk\_experts} 字段，为后续替换官方轨迹保留接口。
+输入模型采用算子级元数据表示，支持线性、MoE 专家、MatMul/Gemm 与轻量非线性任务。ONNX 路径是 initializer-backed 结构适配，不宣称覆盖完整 ONNX 执行语义。激活轨迹适配器接受顶层 \texttt{traces}、\texttt{records} 或 \texttt{activations} 等格式，并统一单条记录的专家字段，例如 \texttt{active\_experts}，为后续替换官方轨迹保留接口。
+
+\subsection{中间产物与接口契约}
+系统以文件接口隔离解析、优化和评估三个阶段。解析阶段至少产生算子列表、依赖边、Weight-Cube 列表和轨迹统计；映射阶段产生逻辑到物理副本的对应关系、复制预算和容量摘要；调度阶段产生任务 ID、物理位置、开始周期、持续时间和前驱信息；最终由验证器读取这些产物，而不是调用模拟器内部对象。这样做有两个直接作用：一是便于替换官方轨迹而不重写优化器，二是允许评委只检查结构化结果而不依赖本地运行时状态。
+
+\texttt{solution.json} 是提交级接口，核心字段为硬件配置、\texttt{weight\_cubes} 和 \texttt{schedule}。
+
+表~\ref{tab:interfaces} 汇总了主要接口的最小字段。字段设计遵循“生成阶段写入、后续阶段只读”的原则：映射器不改写模型依赖，模拟器不补造缺失放置，验证器只根据保存的结构化结果进行检查。该约束降低了调试时把内存状态误认为提交证据的风险。
+
+\begin{table*}[t]
+\centering
+\caption{系统阶段与结构化接口。}
+\label{tab:interfaces}
+\begin{tabularx}{\textwidth}{l l X X}
+\toprule
+阶段 & 输入 & 核心输出字段 & 作用 \\
+\midrule
+解析 & model JSON/ONNX、trace JSON & operators、dependencies、weight\_cubes、trace statistics & 建立算子 DAG、切分权重并统一轨迹格式 \\
+映射 & Weight-Cube、共现/频率/转移统计、CubeConfig & spatial\_mapping、replication metadata、capacity summary & 生成逻辑对象到物理副本的可行放置 \\
+调度 & 映射、副本集合、任务依赖 & task id、placement id、start、duration、predecessors & 在互斥和屏障约束下生成静态执行序列 \\
+验证 & solution.json、validator config & ok、errors、warnings、capacity、metrics & 独立检查边界、重叠、互斥、依赖和映射率 \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+当输入轨迹采用不同封装时，适配器先将顶层 \path{traces}、\path{records} 或 \path{activations} 转成统一记录，再从 \path{active_experts}、\path{expert_ids}、\path{experts} 或 \path{topk_experts} 中读取激活专家。若记录缺少可解释的专家字段，系统应在解析阶段报错，而不是静默生成空统计。这个接口约束是后续接入官方轨迹时的最低兼容条件。
+
+运行清单 \path{run_manifest.json} 保存模型与轨迹哈希、命令行参数、随机性开关、版本摘要和输出文件关系。内部 IR 文件 \path{internal_ir.json} 使用项目自定义的 \path{cim_3d_scheduler.ir.v1} schema，面向审阅和交接，不冒充 MLIR 或硬件 ISA。验证器的输出固定为 \texttt{ok}、\texttt{errors}、\texttt{warnings} 和指标摘要，形成“生成—保存—独立复核”的闭环。

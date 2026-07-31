@@ -13,6 +13,7 @@ import numpy as np
 
 from config.cube_config import DEFAULT_CUBE_CONFIG, CubeConfig
 from config.moe_config import DEFAULT_MOE_CONFIG
+from src.internal_ir import build_internal_ir
 from src.mapping_solver import solve_mapping
 from src.model_parser import parse_activation_trace, parse_model
 from src.simulator import save_simulation, simulate
@@ -43,6 +44,7 @@ def _comparison_dict(base: Dict[str, float], opt: Dict[str, float]) -> Dict[str,
         "improvement": {
             "latency": improve_ratio("latency", lower_is_better=True),
             "space_utilization": improve_ratio("space_utilization", lower_is_better=False),
+            "parameter_density": improve_ratio("parameter_density", lower_is_better=False),
             "temporal_utilization": improve_ratio("temporal_utilization", lower_is_better=False),
             "switching_penalty_cycles": improve_ratio("switching_penalty_cycles", lower_is_better=True),
             "pipeline_bubble_cycles": improve_ratio("pipeline_bubble_cycles", lower_is_better=True),
@@ -63,6 +65,7 @@ def _variant_improvement(base: Dict[str, float], cur: Dict[str, float]) -> Dict[
     return {
         "latency": safe_ratio("latency", lower_is_better=True),
         "space_utilization": safe_ratio("space_utilization", lower_is_better=False),
+        "parameter_density": safe_ratio("parameter_density", lower_is_better=False),
         "temporal_utilization": safe_ratio("temporal_utilization", lower_is_better=False),
         "switching_penalty_cycles": safe_ratio("switching_penalty_cycles", lower_is_better=True),
         "pipeline_bubble_cycles": safe_ratio("pipeline_bubble_cycles", lower_is_better=True),
@@ -182,6 +185,7 @@ def _write_run_manifest(
     strict_capacity: bool,
     seed: int | None,
     comparison: Dict[str, Any],
+    artifacts: Dict[str, str] | None = None,
 ) -> None:
     manifest = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -219,6 +223,8 @@ def _write_run_manifest(
             "latency_improvement": float(comparison["improvement"].get("latency", 0.0)),
         },
     }
+    if artifacts:
+        manifest["artifacts"] = artifacts
     save_json(output_dir / "run_manifest.json", manifest)
 
 
@@ -241,6 +247,7 @@ def run_pipeline(
     capacity_max_ratio: float = 2.0,
     strict_capacity: bool = False,
     seed: int | None = None,
+    export_internal_ir: bool = False,
 ) -> Dict[str, Any]:
     cube_cfg = cube_cfg_override if cube_cfg_override is not None else DEFAULT_CUBE_CONFIG
     moe_cfg = moe_cfg_override if moe_cfg_override is not None else DEFAULT_MOE_CONFIG
@@ -257,6 +264,8 @@ def run_pipeline(
             f"ratio={capacity['capacity_ratio']:.4f}, max={capacity['capacity_max_ratio']:.4f}"
         )
     activation_trace = parse_activation_trace(trace_path)
+    artifacts: Dict[str, str] = {}
+    result_artifacts: Dict[str, str] = {}
 
     variants = {
         "baseline": {
@@ -322,6 +331,22 @@ def run_pipeline(
     optimized_sim = simulation_results["optimized"]
 
     comparison = _comparison_dict(baseline_sim.metrics, optimized_sim.metrics)
+    if export_internal_ir:
+        internal_ir_path = output_dir / "internal_ir.json"
+        save_json(
+            internal_ir_path,
+            build_internal_ir(
+                parsed_model,
+                activation_trace,
+                cube_cfg,
+                mapping=mapping_results["optimized"],
+                simulation=optimized_sim,
+            ),
+        )
+        artifacts["internal_ir"] = "internal_ir.json"
+        result_artifacts["internal_ir"] = str(internal_ir_path.resolve())
+    if result_artifacts:
+        comparison["artifacts"] = result_artifacts
     comparison["ablation"] = {
         name: {
             "metrics": sim.metrics,
@@ -388,6 +413,7 @@ def run_pipeline(
         strict_capacity=strict_capacity,
         seed=seed,
         comparison=comparison,
+        artifacts=artifacts,
     )
 
     return comparison
@@ -399,6 +425,7 @@ def main() -> None:
     parser.add_argument("--trace", type=Path, default=Path("data/sample_trace.json"), help="Path to activation trace JSON")
     parser.add_argument("--output", type=Path, default=Path("outputs"), help="Output directory")
     parser.add_argument("--profile", action="store_true", help="Export baseline/optimized profiling JSON reports")
+    parser.add_argument("--export-internal-ir", action="store_true", help="Export lightweight internal IR JSON")
     parser.add_argument("--cube-n", type=int, default=DEFAULT_CUBE_CONFIG.n, help="Cube grid side N in [2,4]")
     parser.add_argument("--cube-d", type=int, default=DEFAULT_CUBE_CONFIG.d, help="Cube depth D")
     parser.add_argument("--cube-h", type=int, default=DEFAULT_CUBE_CONFIG.h, help="Sub-Cube height H")
@@ -710,6 +737,7 @@ def main() -> None:
         max_parallel_subcubes=max(1, int(args.max_parallel_subcubes)),
         switching_penalty=DEFAULT_CUBE_CONFIG.switching_penalty,
         z_access_penalty=DEFAULT_CUBE_CONFIG.z_access_penalty,
+        inter_subcube_transfer_penalty=DEFAULT_CUBE_CONFIG.inter_subcube_transfer_penalty,
     )
 
     comparison = run_pipeline(
@@ -731,6 +759,7 @@ def main() -> None:
         capacity_max_ratio=max(1e-9, float(args.capacity_max_ratio)),
         strict_capacity=bool(args.strict_capacity),
         seed=max(0, int(args.seed)),
+        export_internal_ir=bool(args.export_internal_ir),
     )
 
     base = comparison["baseline"]

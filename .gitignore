@@ -26,3 +26,23 @@ outputs/
 .DS_Store
 Thumbs.db
 .worktrees/
+
+# Local competition release bundles and archives
+delivery_*/
+formal_submission_*/
+submission_release_*/
+整理后提交材料_*/
+*.zip
+
+# Local paper-generation context and render scratch files
+docs/paper/tmp/
+docs/paper/image_generation_context/
+docs/paper/image_generation_context.zip
+docs/submission/
+docs/superpowers/
+docs/PPT制作方案.md
+docs/PPT_IMAGE_CONTEXT_UPLOAD_GUIDE.md
+docs/paper/FIGURE_GENERATION_GUIDE.md
+
+# Agent-local instructions are not part of the public project
+CLAUDE.md

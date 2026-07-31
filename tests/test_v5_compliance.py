@@ -92,6 +92,107 @@ def test_validator_detects_out_of_bounds_mapping(tmp_path: Path) -> None:
     assert any("bounds" in err for err in report["errors"])
 
 
+def test_validator_detects_duplicate_physical_cube_ids(tmp_path: Path) -> None:
+    output_dir = tmp_path / "duplicate_physical_id"
+    cube_cfg = replace(DEFAULT_CUBE_CONFIG, d=2)
+    run_pipeline(
+        model_path=ROOT / "data" / "sample_model.json",
+        trace_path=ROOT / "data" / "sample_trace.json",
+        output_dir=output_dir,
+        cube_cfg_override=cube_cfg,
+        moe_cfg_override=_fast_moe_cfg(),
+        export_profile=False,
+        strict_capacity=True,
+        capacity_max_ratio=2.0,
+    )
+
+    solution = load_json(output_dir / "solution.json")
+    solution["weight_cubes"][1]["physical_cube_id"] = solution["weight_cubes"][0]["physical_cube_id"]
+    solution["spatial_mapping"]["weight_cubes"] = solution["weight_cubes"]
+    save_json(output_dir / "solution.json", solution)
+
+    report = validate_output_dir(output_dir, strict_capacity=True, capacity_max_ratio=2.0)
+    assert not report["ok"]
+    assert any("duplicate physical_cube_id" in err for err in report["errors"])
+
+
+def test_validator_detects_schedule_unknown_physical_cube(tmp_path: Path) -> None:
+    output_dir = tmp_path / "unknown_schedule_cube"
+    cube_cfg = replace(DEFAULT_CUBE_CONFIG, d=2)
+    run_pipeline(
+        model_path=ROOT / "data" / "sample_model.json",
+        trace_path=ROOT / "data" / "sample_trace.json",
+        output_dir=output_dir,
+        cube_cfg_override=cube_cfg,
+        moe_cfg_override=_fast_moe_cfg(),
+        export_profile=False,
+        strict_capacity=True,
+        capacity_max_ratio=2.0,
+    )
+
+    solution = load_json(output_dir / "solution.json")
+    first_weight_task = next(i for i, rec in enumerate(solution["schedule"]) if rec.get("physical_cube_id") is not None)
+    solution["schedule"][first_weight_task]["physical_cube_id"] = "missing_physical_cube"
+    solution["static_schedule"] = solution["schedule"]
+    save_json(output_dir / "solution.json", solution)
+
+    report = validate_output_dir(output_dir, strict_capacity=True, capacity_max_ratio=2.0)
+    assert not report["ok"]
+    assert any("unknown physical_cube_id" in err for err in report["errors"])
+
+
+def test_validator_detects_schedule_subcube_mismatch(tmp_path: Path) -> None:
+    output_dir = tmp_path / "schedule_subcube_mismatch"
+    cube_cfg = replace(DEFAULT_CUBE_CONFIG, d=2)
+    run_pipeline(
+        model_path=ROOT / "data" / "sample_model.json",
+        trace_path=ROOT / "data" / "sample_trace.json",
+        output_dir=output_dir,
+        cube_cfg_override=cube_cfg,
+        moe_cfg_override=_fast_moe_cfg(),
+        export_profile=False,
+        strict_capacity=True,
+        capacity_max_ratio=2.0,
+    )
+
+    solution = load_json(output_dir / "solution.json")
+    first_weight_task = next(i for i, rec in enumerate(solution["schedule"]) if rec.get("physical_cube_id") is not None)
+    original_sc = int(solution["schedule"][first_weight_task]["subcube"])
+    solution["schedule"][first_weight_task]["subcube"] = (original_sc + 1) % int(
+        solution["hardware"]["num_subcubes"]
+    )
+    solution["static_schedule"] = solution["schedule"]
+    save_json(output_dir / "solution.json", solution)
+
+    report = validate_output_dir(output_dir, strict_capacity=True, capacity_max_ratio=2.0)
+    assert not report["ok"]
+    assert any("does not match placement" in err for err in report["errors"])
+
+
+def test_validator_detects_zero_length_schedule_task(tmp_path: Path) -> None:
+    output_dir = tmp_path / "zero_length_task"
+    cube_cfg = replace(DEFAULT_CUBE_CONFIG, d=2)
+    run_pipeline(
+        model_path=ROOT / "data" / "sample_model.json",
+        trace_path=ROOT / "data" / "sample_trace.json",
+        output_dir=output_dir,
+        cube_cfg_override=cube_cfg,
+        moe_cfg_override=_fast_moe_cfg(),
+        export_profile=False,
+        strict_capacity=True,
+        capacity_max_ratio=2.0,
+    )
+
+    solution = load_json(output_dir / "solution.json")
+    solution["schedule"][0]["end_cycle"] = solution["schedule"][0]["start_cycle"]
+    solution["static_schedule"] = solution["schedule"]
+    save_json(output_dir / "solution.json", solution)
+
+    report = validate_output_dir(output_dir, strict_capacity=True, capacity_max_ratio=2.0)
+    assert not report["ok"]
+    assert any("end before start" in err for err in report["errors"])
+
+
 def test_synthetic_model_can_be_parsed(tmp_path: Path) -> None:
     model_path = tmp_path / "synthetic_model.json"
     model = build_synthetic_moe_model(
